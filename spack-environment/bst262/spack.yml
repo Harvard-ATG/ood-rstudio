@@ -8,6 +8,7 @@ spack:
   - r
   - gdal
   - sqlite
+  - netcdf-c
   view: true
   concretizer:
     unify: true
