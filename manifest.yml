@@ -1,0 +1,10 @@
+---
+name: RStudio
+category: Interactive Apps
+subcategory: Servers
+role: batch_connect
+description: |
+  This app will launch [RStudio Server] an IDE for [R]. The RStudio Server will be running inside of an Apptainer container, without access to Slurm commands.
+
+  [RStudio Server]: https://www.rstudio.com/products/rstudio-server/
+  [R]: https://www.r-project.org/

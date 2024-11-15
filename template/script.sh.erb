@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+
+# Benchmark info
+echo "TIMING - Starting main script at: $(date -Iseconds)"
+
+# Validate home directory and set it to what it should be
+echo "original HOME=$HOME"
+echo "user=$(id -nu)"
+export HOME="/shared/home/$(id -nu)"
+echo "new HOME=$HOME"
+
+# Set working directory to home directory
+cd "${HOME}"
+
+spack_environment="apptainer"
+apptainer_image_dir="/shared/apptainerImages"
+rstudio_container="rstudio.sif"
+
+# Load the required environment
+setup_env () {
+  # Load spack
+  spack_root="/shared/spack"
+  echo "Spack root: $spack_root"
+  . $spack_root/share/spack/setup-env.sh
+  echo "TIMING - Activated spack install at $(date -Iseconds)"
+
+  # Load the required environment
+  echo "Loading spack environment: $spack_environment"
+  spack env activate $spack_environment
+  echo "TIMING - Spack environment loaded at $(date -Iseconds)"
+}
+
+setup_env
+
+export WORKING_DIR="<%= session_dir %>"
+
+#
+# Start RStudio Server
+#
+# PAM auth helper used by RStudio
+export RSTUDIO_AUTH="$WORKING_DIR/bin/auth"
+
+# server log directory in this job's working directory
+mkdir -p "$WORKING_DIR/logs"
+
+set -x
+
+APPTAINER_HOME:=$HOME
+
+# Bind folders to the container file system so it can access and write to them
+SING_BINDS=""
+SING_BINDS+=" -B /shared/courseSharedFolders"
+SING_BINDS+=" -B /shared/spack"
+echo "SING_BINDS=${SING_BINDS}"
+
+RSERVER_ARGS=""
+RSERVER_ARGS+="--www-port 8080 "
+RSERVER_ARGS+="--auth-none 0 "
+RSERVER_ARGS+="--auth-pam-helper-path \"${RSTUDIO_AUTH}\" "
+RSERVER_ARGS+="--auth-encrypt-password 0 "
+RSERVER_ARGS+="--rsession-path \"${RSESSION_WRAPPER_FILE}\" "
+RSERVER_ARGS+="--server-data-dir='/tmp/run' "
+RSERVER_ARGS+="--server-user=$(whoami) "
+echo "RSERVER_ARGS=${RSERVER_ARGS}"
+
+# Launch the RStudio Server
+echo "TIMING - Starting jupyter at: $(date -Iseconds)"
+
+apptainer exec $SING_BINDS "${apptainer_image_dir}/${rstudio_container}" rserver $RSERVER_ARGS
