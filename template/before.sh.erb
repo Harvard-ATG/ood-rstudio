@@ -8,3 +8,5 @@ password="$(create_passwd 16)"
 port=$(find_port ${host})
 
 export RSTUDIO_PASSWORD="${password}"
+
+export JOBROOT=$PWD

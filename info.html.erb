@@ -1,21 +1,9 @@
 <div class="card">
-  <div class="card-header">
-    Module issues in terminal
+  <div class="card-header" id="slurm-implications-header">
+    <button class="btn btn-dark mt-3" type="button" data-toggle="collapse" data-target="#slurm-implications" aria-expanded="false" aria-controls="collapseExample">Slurm Implications</button>
   </div>
-  <div class="card-body">
-  This isn't relevant to us, but I want to see what it looks like.
-  
-  There's a known issue loading modules in RStudio's environment after changing versions or clusters.</br></br>
-
-  If you have issues using modules in the RConsole - try these remedies
-  <ul>
-    <li>restarting the terminal</li>
-    <li>restarting the RConsole</li>
-    <li>logging out of the RStudio session and logging back in.</li>
-    <li>remove your <span class='bg-light text-black'>~/.local/share/rstudio</span></li>
-  </ul>
-
-  Contact <a href="mailto:oschelp@osc.edu">OSC Help</a>  if you continue to have issues.
+  <div class="card-body collapse" id="slurm-implications">
+  When using this application, slurm commands will not be available. This is because the application runs in a container, disconnected from the environment on the compute node where Slurm commands are available. If you need R code to run in a batch environment, use the OnDemand terminal app to start a job instead.
   </div>
 </div>
 

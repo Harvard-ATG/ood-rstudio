@@ -16,7 +16,7 @@ cd "${HOME}"
 
 spack_environment="apptainer"
 apptainer_image_dir="/shared/apptainerImages"
-rstudio_container="rstudio.sif"
+rstudio_container="rstudio-base.sif"
 
 # Load the required environment
 setup_env () {
@@ -42,6 +42,41 @@ export WORKING_DIR="<%= session_dir %>"
 # PAM auth helper used by RStudio
 export RSTUDIO_AUTH="$WORKING_DIR/bin/auth"
 
+# Generate an `rsession` wrapper script
+export RSESSION_WRAPPER_FILE="$WORKING_DIR/rsession.sh"
+(
+umask 077
+sed 's/^ \{2\}//' > "$WORKING_DIR/rsession.sh" << EOL
+  #!/usr/bin/env bash
+
+  set -x
+
+  echo "The rsession script is running, Bartholomew"
+
+  # Log all output from this script
+  export RSESSION_LOG_FILE="$WORKING_DIR/rsession.log"
+
+  exec &>>"\${RSESSION_LOG_FILE}"
+  set -x
+
+  # rsession.sh doesn't share the same env as the outside script, so these
+  # need to be set explicitly
+  export R_LIBS_SITE="${R_LIBS_SITE}"
+  export TZ="US/Eastern"
+  export HOME="$HOME"
+  export MODULEPATH_ROOT="$MODULEPATH_ROOT"
+  export MODULEPATH="$MODULEPATH"
+  export LMOD_PKG="$LMOD_PKG"
+
+  env
+
+  # Launch the original command
+  echo "Launching rsession..."
+  exec rsession --r-libs-user "${R_LIBS_USER}" "\${@}"
+EOL
+)
+chmod 700 "$WORKING_DIR/rsession.sh"
+
 # server log directory in this job's working directory
 mkdir -p "$WORKING_DIR/logs"
 
@@ -53,19 +88,14 @@ APPTAINER_HOME:=$HOME
 SING_BINDS=""
 SING_BINDS+=" -B /shared/courseSharedFolders"
 SING_BINDS+=" -B /shared/spack"
+SING_BINDS+=" -B /etc/rstudio etc/rstudio"
 echo "SING_BINDS=${SING_BINDS}"
 
-RSERVER_ARGS=""
-RSERVER_ARGS+="--www-port 8080 "
-RSERVER_ARGS+="--auth-none 0 "
-RSERVER_ARGS+="--auth-pam-helper-path \"${RSTUDIO_AUTH}\" "
-RSERVER_ARGS+="--auth-encrypt-password 0 "
-RSERVER_ARGS+="--rsession-path \"${RSESSION_WRAPPER_FILE}\" "
-RSERVER_ARGS+="--server-data-dir='/tmp/run' "
-RSERVER_ARGS+="--server-user=$(whoami) "
-echo "RSERVER_ARGS=${RSERVER_ARGS}"
-
 # Launch the RStudio Server
-echo "TIMING - Starting jupyter at: $(date -Iseconds)"
+echo "TIMING - Starting RStudio at: $(date -Iseconds)"
 
-apptainer exec $SING_BINDS "${apptainer_image_dir}/${rstudio_container}" rserver $RSERVER_ARGS
+echo "apptainer=$(which apptainer)"
+
+apptainer --debug exec $SING_BINDS "${apptainer_image_dir}/${rstudio_container}" ${JOBROOT}/rstudio.script.sh
+
+echo -e "Apptainer logs:\n$(apptainer instance list --logs)"
