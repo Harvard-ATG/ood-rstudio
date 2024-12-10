@@ -2,7 +2,7 @@
 
 set -x
 
-echo "rstudio.script.sh is running"
+export PATH=/usr/lib/rstudio-server/bin:$PATH
 
 RSERVER_ARGLIST=(
   "--server-working-dir" "${WORKING_DIR}"
@@ -12,8 +12,7 @@ RSERVER_ARGLIST=(
   "--www-port" "${port}"
   "--rsession-path" "${RSESSION_WRAPPER_FILE}"
   "--auth-none" "0"
-  "--auth-pam-helper-path" "pam-helper"
-  # "--auth-pam-helper-path" "${RSTUDIO_AUTH}"
+  "--auth-pam-helper-path" "${RSTUDIO_AUTH}"
   "--auth-encrypt-password" "0"
 )
 echo "RSERVER_ARGLIST=${RSERVER_ARGLIST[@]}"
@@ -22,8 +21,9 @@ RSERVER_ARGS="${RSERVER_ARGLIST[@]}"
 
 echo "which rserver=$(which rserver)"
 
-sh -c "USER=${USER}
-rserver ${RSERVER_ARGS}"
+rserver ${RSERVER_ARGS}
+
+echo "$?"
 
 echo "$(ps aux | grep rserver)"
 

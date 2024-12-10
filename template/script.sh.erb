@@ -85,10 +85,12 @@ set -x
 APPTAINER_HOME:=$HOME
 
 # Bind folders to the container file system so it can access and write to them
-SING_BINDS=""
-SING_BINDS+=" -B /shared/courseSharedFolders"
-SING_BINDS+=" -B /shared/spack"
-# SING_BINDS+=" -B /etc/rstudio etc/rstudio"
+SING_BIND_LIST=(
+  "-B" "/shared/courseSharedFolders"
+  "-B" "/shared/spack"
+  "-B" "$WORKING_DIR/etc/rstudio:/etc/rstudio"
+)
+SING_BINDS="${SING_BIND_LIST[@]}"
 echo "SING_BINDS=${SING_BINDS}"
 
 # Launch the RStudio Server
@@ -96,6 +98,6 @@ echo "TIMING - Starting RStudio at: $(date -Iseconds)"
 
 echo "apptainer=$(which apptainer)"
 
-apptainer --debug exec $SING_BINDS "${apptainer_image_dir}/${rstudio_container}" ${JOBROOT}/rstudio.script.sh
+apptainer exec $SING_BINDS "${apptainer_image_dir}/${rstudio_container}" ${JOBROOT}/rstudio.script.sh
 
 echo -e "Apptainer logs:\n$(apptainer instance list --logs)"
