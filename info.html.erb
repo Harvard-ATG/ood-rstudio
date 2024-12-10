@@ -1,39 +1,9 @@
-<div class="card">
-  <div class="card-header" id="slurm-implications-header">
-    <button class="btn btn-dark mt-3" type="button" data-toggle="collapse" data-target="#slurm-implications" aria-expanded="false" aria-controls="collapseExample">Slurm Implications</button>
-  </div>
-  <div class="card-body collapse" id="slurm-implications">
-  When using this application, slurm commands will not be available. This is because the application runs in a container, disconnected from the environment on the compute node where Slurm commands are available. If you need R code to run in a batch environment, use the OnDemand terminal app to start a job instead.
-  </div>
-</div>
+<p>The app may stay in a "Queued" state for 10-15 minutes in the event that there are no compute resources already available to run your session. Please be patient as additional compute resources are allocated to your session.</p>
 
 <button class="btn btn-dark mt-3" type="button" data-toggle="collapse" data-target="#importing_modules" aria-expanded="false" aria-controls="collapseExample">
-  How to import modules in R
+  A note on Slurm commmands
 </button>
 
 <dl class="row collapse" id="importing_modules">
-
-  <dt class="col-sm-4">
-    <p class="font-weight-bold">Import the module function</p>
-  </dt>
-  <dd class="col-sm-8">
-    <p class="bg-light text-black">source(file.path(Sys.getenv("LMOD_PKG"), "init/R"))</p>
-  </dd>
-
-  <dt class="col-sm-4">
-    <p class="font-weight-bold">Example loading 'blast'</p>
-  </dt>
-  <dd class="col-sm-8">
-    <p class="bg-light text-black">module("load", "blast")</p>
-  </dd>
-
-  <dt class="col-sm-4">
-    <p class="font-weight-bold">Example loading a custom module</p>
-  </dt>
-  <dd class="col-sm-8">
-    <div class="bg-light text-black">
-      module("use", "~/local/share/lmodfiles") <div class="mt-1"></div>
-      module("load", "MyModuleA")
-    </div>
-  </dd>
+<p>Slurm commands are not available within the terminal in this application. That's because this application runs inside of a container that does not have access to the slurm commands outside the container. If you need to run a Slurm job that uses R, submit it from the built-in terminal as a batch job or interactive Slurm session.</p>
 </dl>
