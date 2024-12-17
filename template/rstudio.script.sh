@@ -24,7 +24,3 @@ echo "which rserver=$(which rserver)"
 rserver ${RSERVER_ARGS}
 
 echo "$?"
-
-echo "$(ps aux | grep rserver)"
-
-echo "This happened after the rserver command"
