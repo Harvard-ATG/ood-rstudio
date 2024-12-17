@@ -4,7 +4,7 @@ This app contains a configuration for getting RStudio running in an [Apptainer](
 
 ## Container
 
-The base container used is defined in `/build/rstudio-base.def`. This is a direct translation of a Docker image from the [Rocker RStudio Docker repo](https://hub.docker.com/r/rocker/rstudio) into the Apptainer format. The definition file can be used to change the behavior to suit different use cases.
+The base container used is defined in `/build/rstudio-base.def`. This is a direct translation of a Docker image from the [Rocker RStudio Docker repo](https://hub.docker.com/r/rocker/rstudio) ([Rocker homepage](https://rocker-project.org/)) into the Apptainer format. The definition file can be used to change the behavior to suit different use cases.
 
 ## Application
 
