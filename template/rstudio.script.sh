@@ -7,7 +7,7 @@ export PATH=/usr/lib/rstudio-server/bin:$PATH
 RSERVER_ARGLIST=(
   "--server-working-dir" "${WORKING_DIR}"
   "--server-user" "$(whoami)"
-  "--server-data-dir" "/tmp/run"
+  "--server-data-dir" "/tmp/$(whoami)/run"
   "--www-address" "0.0.0.0"
   "--www-port" "${port}"
   "--rsession-path" "${RSESSION_WRAPPER_FILE}"
