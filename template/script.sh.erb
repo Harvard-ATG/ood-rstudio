@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+
+<%- session_dir = session.staged_root %>
+
+# Benchmark info
+echo "TIMING - Starting main script at: $(date -Iseconds)"
+
+# Validate home directory and set it to what it should be
+echo "original HOME=$HOME"
+echo "user=$(id -nu)"
+export HOME="/shared/home/$(id -nu)"
+echo "new HOME=$HOME"
+
+# Set working directory to home directory
+cd "${HOME}"
+
+spack_environment="apptainer"
+apptainer_image_dir="/shared/apptainerImages"
+rstudio_container="rstudio-base.sif"
+
+# Load the required environment
+setup_env () {
+  # Load spack
+  spack_root="/shared/spack"
+  echo "Spack root: $spack_root"
+  . $spack_root/share/spack/setup-env.sh
+  echo "TIMING - Activated spack install at $(date -Iseconds)"
+
+  # Load the required environment
+  echo "Loading spack environment: $spack_environment"
+  spack env activate $spack_environment
+  echo "TIMING - Spack environment loaded at $(date -Iseconds)"
+}
+
+setup_env
+
+export WORKING_DIR="<%= session_dir %>"
+
+#
+# Start RStudio Server
+#
+# PAM auth helper used by RStudio
+export RSTUDIO_AUTH="$WORKING_DIR/bin/auth"
+
+# Generate an `rsession` wrapper script
+export RSESSION_WRAPPER_FILE="$WORKING_DIR/rsession.sh"
+(
+umask 077
+sed 's/^ \{2\}//' > "$WORKING_DIR/rsession.sh" << EOL
+  #!/usr/bin/env bash
+
+  set -x
+
+  echo "The rsession script is running, Bartholomew"
+
+  # Log all output from this script
+  export RSESSION_LOG_FILE="$WORKING_DIR/rsession.log"
+
+  exec &>>"\${RSESSION_LOG_FILE}"
+  set -x
+
+  # rsession.sh doesn't share the same env as the outside script, so these
+  # need to be set explicitly
+  export R_LIBS_SITE="${R_LIBS_SITE}"
+  export TZ="US/Eastern"
+  export HOME="$HOME"
+  export MODULEPATH_ROOT="$MODULEPATH_ROOT"
+  export MODULEPATH="$MODULEPATH"
+  export LMOD_PKG="$LMOD_PKG"
+
+  env
+
+  # Launch the original command
+  echo "Launching rsession..."
+  exec rsession --r-libs-user "${R_LIBS_USER}" "\${@}"
+EOL
+)
+chmod 700 "$WORKING_DIR/rsession.sh"
+
+# server log directory in this job's working directory
+mkdir -p "$WORKING_DIR/logs"
+
+set -x
+
+APPTAINER_HOME:=$HOME
+
+# Bind folders to the container file system so it can access and write to them
+SING_BIND_LIST=(
+  "-B" "/shared/courseSharedFolders"
+  "-B" "/shared/spack"
+  "-B" "$WORKING_DIR/etc/rstudio:/etc/rstudio"
+)
+SING_BINDS="${SING_BIND_LIST[@]}"
+echo "SING_BINDS=${SING_BINDS}"
+
+# Launch the RStudio Server
+echo "TIMING - Starting RStudio at: $(date -Iseconds)"
+
+echo "apptainer=$(which apptainer)"
+
+apptainer exec $SING_BINDS "${apptainer_image_dir}/${rstudio_container}" ${JOBROOT}/rstudio.script.sh
+
+echo -e "Apptainer logs:\n$(apptainer instance list --logs)"
