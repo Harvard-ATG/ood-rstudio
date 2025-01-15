@@ -2,6 +2,7 @@
 cluster: "*"
 
 attributes:
+  imagefile: rstudio-base.sif
   custom_num_cores:
     widget: "number_field"
     label: "Number of CPUs"
@@ -12,3 +13,4 @@ attributes:
 form:
   - custom_num_cores
   - bc_num_hours
+  - imagefile

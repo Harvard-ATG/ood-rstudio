@@ -16,7 +16,7 @@ cd "${HOME}"
 
 spack_environment="apptainer"
 apptainer_image_dir="/shared/apptainerImages"
-rstudio_container="rstudio-base.sif"
+rstudio_container="<%= context.imagefile %>"
 
 # Load the required environment
 setup_env () {
