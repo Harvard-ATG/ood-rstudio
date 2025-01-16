@@ -3,25 +3,37 @@
 # @note Used to define the submitted cluster, title, description, and
 #   hard-coded/user-defined attributes that make up this Batch Connect app.
 <%-
-userGroups = OodSupport::User.new.groups.sort_by(&:id).map(&:name).flat_map{ |str| str.scan(/^canvas(\d+)-\d+/) }.flatten
-enabledGroups = [
-  "135510", # HUIT Open OnDemand Testing
-  "150890"  # BST 282: Introduction to Computational Biology and Bioinformatics
-]
-
 def arrays_have_common_element(array1, array2)
   # Use the `&` operator to get the intersection of the two arrays
   # If the intersection is not empty, return true, otherwise false
   !(array1 & array2).empty?
 end
 
-# Check if the groups that the user is in match any of the courses that should
-# have access to this app.
-
-if arrays_have_common_element(userGroups, enabledGroups)
+userGroups = OodSupport::User.new.groups.sort_by(&:id).map(&:name)
+# First check if the user is in an admin group
+adminGroups = [
+  "ondemand-admins-1025174" # HUIT OOD admin group, prod environment
+]
+if arrays_have_common_element(userGroups, adminGroups)
   cluster="*"
 else
-  cluster="disable_this_app"
+  # If the user is not in an admin group, check if they're in an authorized Canvas group
+  userCanvasGroups = userGroups.flat_map{ |str| str.scan(/^canvas(\d+)-\d+/) }.flatten
+  enabledGroups = [
+    # Cannot have other enabled groups if a course installation is in use
+    # This is because the course installation uses the course shared folder,
+    # which is not accessible to users outside of that course.
+    "150890"  # BST 282: Introduction to Computational Biology and Bioinformatics
+  ]
+
+  # Check if the groups that the user is in match any of the courses that should
+  # have access to this app.
+
+  if arrays_have_common_element(userGroups, enabledGroups)
+    cluster="*"
+  else
+    cluster="disable_this_app"
+  end
 end
 -%>
 ---
