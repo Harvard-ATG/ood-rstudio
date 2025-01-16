@@ -1,0 +1,60 @@
+# Batch Connect app configuration file
+#
+# @note Used to define the submitted cluster, title, description, and
+#   hard-coded/user-defined attributes that make up this Batch Connect app.
+<%-
+def arrays_have_common_element(array1, array2)
+  # Use the `&` operator to get the intersection of the two arrays
+  # If the intersection is not empty, return true, otherwise false
+  !(array1 & array2).empty?
+end
+
+userGroups = OodSupport::User.new.groups.sort_by(&:id).map(&:name)
+# First check if the user is in an admin group
+adminGroups = [
+  "ondemand-admins-1025174" # HUIT OOD admin group, prod environment
+]
+if arrays_have_common_element(userGroups, adminGroups)
+  cluster="*"
+else
+  # If the user is not in an admin group, check if they're in an authorized Canvas group
+  userCanvasGroups = userGroups.flat_map{ |str| str.scan(/^canvas(\d+)-\d+/) }.flatten
+  enabledGroups = [
+    # Cannot have other enabled groups if a course installation is in use
+    # This is because the course installation uses the course shared folder,
+    # which is not accessible to users outside of that course.
+    "150890"  # BST 282: Introduction to Computational Biology and Bioinformatics
+  ]
+
+  # Check if the groups that the user is in match any of the courses that should
+  # have access to this app.
+
+  if arrays_have_common_element(userGroups, enabledGroups)
+    cluster="*"
+  else
+    cluster="disable_this_app"
+  end
+end
+-%>
+---
+# **MUST** set cluster id here that matches cluster configuration file located
+# under /etc/ood/config/clusters.d/*.yml
+# @example Use the Owens cluster at Ohio Supercomputer Center
+#     cluster: "owens"
+cluster: "<%= cluster %>"
+
+title: "RStudio - BST 282"
+
+attributes:
+  imagefile: rstudio-bioconductor.sif
+  custom_num_cores:
+    widget: "number_field"
+    label: "Number of CPUs"
+    value: 1
+    min: 1
+    max: 4
+    step: 1
+form:
+  - custom_num_cores
+  - bc_num_hours
+  - imagefile
