@@ -29,7 +29,7 @@ else
   # Check if the groups that the user is in match any of the courses that should
   # have access to this app.
 
-  if arrays_have_common_element(userGroups, enabledGroups)
+  if arrays_have_common_element(userCanvasGroups, enabledGroups)
     cluster="*"
   else
     cluster="disable_this_app"
