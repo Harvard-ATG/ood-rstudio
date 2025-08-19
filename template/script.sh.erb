@@ -80,7 +80,7 @@ chmod 700 "$WORKING_DIR/rsession.sh"
 # server log directory in this job's working directory
 mkdir -p "$WORKING_DIR/logs"
 
-APPTAINER_HOME:=$HOME
+APPTAINER_HOME=$HOME
 
 # Bind folders to the container file system so it can access and write to them
 SING_BIND_LIST=(
