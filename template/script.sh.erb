@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 
+this_script="template/script.sh.erb"
+
+log() {
+    echo -e "[$(date -Iseconds)][${this_script}] $1"
+}
+
 <%- session_dir = session.staged_root %>
 
 # Benchmark info
-echo "TIMING - Starting main script at: $(date -Iseconds)"
-
-# Validate home directory and set it to what it should be
-echo "original HOME=$HOME"
-echo "user=$(id -nu)"
-export HOME="/shared/home/$(id -nu)"
-echo "new HOME=$HOME"
+log "Starting main script"
 
 # Set working directory to home directory
 cd "${HOME}"
@@ -22,14 +22,14 @@ rstudio_container="<%= context.imagefile %>"
 setup_env () {
   # Load spack
   spack_root="/shared/spack"
-  echo "Spack root: $spack_root"
+  log "Spack root: $spack_root"
   . $spack_root/share/spack/setup-env.sh
-  echo "TIMING - Activated spack install at $(date -Iseconds)"
+  log "Activated spack install."
 
   # Load the required environment
-  echo "Loading spack environment: $spack_environment"
+  log "Loading spack environment: $spack_environment"
   spack env activate $spack_environment
-  echo "TIMING - Spack environment loaded at $(date -Iseconds)"
+  log "Spack environment loaded."
 }
 
 setup_env
@@ -51,7 +51,7 @@ sed 's/^ \{2\}//' > "$WORKING_DIR/rsession.sh" << EOL
 
   set -x
 
-  echo "The rsession script is running, Bartholomew"
+  echo "The rsession script is running"
 
   # Log all output from this script
   export RSESSION_LOG_FILE="$WORKING_DIR/rsession.log"
@@ -80,8 +80,6 @@ chmod 700 "$WORKING_DIR/rsession.sh"
 # server log directory in this job's working directory
 mkdir -p "$WORKING_DIR/logs"
 
-set -x
-
 APPTAINER_HOME:=$HOME
 
 # Bind folders to the container file system so it can access and write to them
@@ -91,13 +89,13 @@ SING_BIND_LIST=(
   "-B" "$WORKING_DIR/etc/rstudio:/etc/rstudio"
 )
 SING_BINDS="${SING_BIND_LIST[@]}"
-echo "SING_BINDS=${SING_BINDS}"
+log "SING_BINDS=${SING_BINDS}"
 
 # Launch the RStudio Server
-echo "TIMING - Starting RStudio at: $(date -Iseconds)"
+log "Starting RStudio"
 
-echo "apptainer=$(which apptainer)"
+log "apptainer=$(which apptainer)"
 
 apptainer exec $SING_BINDS "${apptainer_image_dir}/${rstudio_container}" ${JOBROOT}/rstudio.script.sh
 
-echo -e "Apptainer logs:\n$(apptainer instance list --logs)"
+log "Apptainer logs:\n$(apptainer instance list --logs)"
