@@ -1,16 +1,4 @@
----
-cluster: "*"
-
-attributes:
-  imagefile: rstudio-base.sif
-  custom_num_cores:
-    widget: "number_field"
-    label: "Number of CPUs"
-    value: 1
-    min: 1
-    max: 4
-    step: 1
-form:
-  - custom_num_cores
-  - bc_num_hours
-  - imagefile
+# This OnDemand app configuration uses sub-apps by default to allow for custom
+# sub-apps. The default configuration is in `local/generic.yml.erb`, which is
+# the file that should be referenced for creating a new sub-app with this
+# configuration.
