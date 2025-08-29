@@ -1,0 +1,64 @@
+Bootstrap: docker
+From: rocker/verse:4.5.1
+
+%post
+R_PACKAGES=(
+    "AER" 
+    "MASS"
+    "binsreg"
+    "boot"
+    "broom"
+    "car"
+    "data.table"
+    "dfadjust"
+    "dplyr"
+    "estimatr"
+    "fixest"
+    "gamlr"
+    "ggplot2"
+    "haven"
+    "ivDiag"
+    "jsonlite"
+    "kableExtra"
+    "lfe"
+    "lib"
+    "lmtest"
+    "lpdensity"
+    "lubridate"
+    "maptpx"
+    "margins"
+    "msm"
+    "np"
+    "nprobust"
+    "oglmx"
+    "randomForest"
+    "remotes"
+    "rdrobust"
+    "rpart"
+    "rpart.plot"
+    "rugarch"
+    "ranger"
+    "sampleSelection"
+    "sandwich"
+    "stargazer"
+    "statar"
+    "textir"
+    "tidyverse"
+    "tm"
+    "zoo"
+)
+
+R_GH_PACKAGES=(
+    "OpportunityInsights/oiplot"
+    "grantmcdermott/lfe2fixest"
+    "manutzn/fredo"
+)
+
+for package in "${R_PACKAGES[@]}"
+do
+Rscript -e "install.packages(\"${package}\")"
+done
+
+for package in "${R_GH_PACKAGES[@]}"
+do
+Rscript -e "devtools::install_github(\"${package}\")
