@@ -42,6 +42,9 @@ export WORKING_DIR="<%= session_dir %>"
 # PAM auth helper used by RStudio
 export RSTUDIO_AUTH="$WORKING_DIR/bin/auth"
 
+R_LIBS_USER="/shared/home/$USER/R/%p-library/%v"
+<%= context.respond_to?('r_libpath') ? "export R_LIBS_USER=\"${R_LIBS_USER}:#{context.r_libpath}\"" : "" %>
+
 # Generate an `rsession` wrapper script
 export RSESSION_WRAPPER_FILE="$WORKING_DIR/rsession.sh"
 (
@@ -67,6 +70,7 @@ sed 's/^ \{2\}//' > "$WORKING_DIR/rsession.sh" << EOL
   export MODULEPATH_ROOT="$MODULEPATH_ROOT"
   export MODULEPATH="$MODULEPATH"
   export LMOD_PKG="$LMOD_PKG"
+  $R_LIBPATH_LINE
 
   env
 
