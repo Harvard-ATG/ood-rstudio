@@ -42,7 +42,15 @@ export WORKING_DIR="<%= session_dir %>"
 # PAM auth helper used by RStudio
 export RSTUDIO_AUTH="$WORKING_DIR/bin/auth"
 
+# Set up R library paths to be used in app. This is used when starting the
+# rstudio command, passed as an argument to `rsession` via `--r-libs-user`
+# First, ensure that there is a library path in the user's home directory
+# available, so users can install their own packages without additional setup
 R_LIBS_USER="/shared/home/$USER/R/%p-library/%v"
+
+# Then, if it's specified in the form for this app, set an additional library
+# path for the R Studio app to use. This is used to set up a shared library
+# install location, managed by course instructors.
 <%= context.respond_to?('r_libpath') ? "export R_LIBS_USER=\"${R_LIBS_USER}:#{context.r_libpath}\"" : "" %>
 
 # Generate an `rsession` wrapper script
