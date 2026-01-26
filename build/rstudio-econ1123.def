@@ -22,7 +22,7 @@ R_PACKAGES=(
     "jsonlite"
     "kableExtra"
     "lfe"
-    "lib"
+    # "lib" # Does not appear to be a package
     "lmtest"
     "lpdensity"
     "lubridate"
@@ -31,7 +31,7 @@ R_PACKAGES=(
     "msm"
     "np"
     "nprobust"
-    "oglmx"
+    # "oglmx" # Removed from CRAN repository
     "randomForest"
     "remotes"
     "rdrobust"
