@@ -103,11 +103,18 @@ SING_BIND_LIST=(
 SING_BINDS="${SING_BIND_LIST[@]}"
 log "SING_BINDS=${SING_BINDS}"
 
+# Add GPU support if GPUs are requested
+GPU_FLAG=""
+<% if context.respond_to?('custom_num_gpus') && !context.custom_num_gpus.blank? && context.custom_num_gpus.to_i > 0 %>
+GPU_FLAG="--nv"
+log "GPU support enabled with --nv flag (custom_num_gpus=<%= context.custom_num_gpus %>)"
+<% end %>
+
 # Launch the RStudio Server
 log "Starting RStudio"
 
 log "apptainer=$(which apptainer)"
 
-apptainer exec $SING_BINDS "${apptainer_image_dir}/${rstudio_container}" ${JOBROOT}/rstudio.script.sh
+apptainer exec ${GPU_FLAG} $SING_BINDS "${apptainer_image_dir}/${rstudio_container}" ${JOBROOT}/rstudio.script.sh
 
 log "Apptainer logs:\n$(apptainer instance list --logs)"

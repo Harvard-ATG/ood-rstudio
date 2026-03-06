@@ -1,0 +1,77 @@
+<%-
+# Specify admin groups by the full name of the group in the production HKey environment.
+adminGroups = [
+  "ondemand-admins-1025174" # HUIT OOD admin group, prod environment
+]
+# Specify course groups by Canvas course ID, which you can find in a url:
+# canvas.harvard.edu/courses/000000
+enabledGroups = [
+  "162018" # APCOMP 297R - Replace with actual Canvas course ID
+]
+# Note: gpu queue uses g5.2xlarge (A10G) or g6.2xlarge (L4) instances
+# For multi-GPU access (gpu-parallel queue), contact admins
+
+def arrays_have_common_element(array1, array2)
+  # Use the `&` operator to get the intersection of the two arrays
+  # If the intersection is not empty, return true, otherwise false
+  !(array1 & array2).empty?
+end
+
+userGroups = OodSupport::User.new.groups.sort_by(&:id).map(&:name)
+# First check if the user is in an admin group
+if arrays_have_common_element(userGroups, adminGroups)
+  cluster="*"
+else
+  # If the user is not in an admin group, check if they're in an authorized Canvas group
+  userCanvasGroups = userGroups.flat_map{ |str| str.scan(/^canvas(\d+)-\d+/) }.flatten
+
+  # Check if the groups that the user is in match any of the courses that should
+  # have access to this app.
+
+  if arrays_have_common_element(userCanvasGroups, enabledGroups)
+    cluster="*"
+  else
+    cluster="disable_this_app"
+  end
+end
+-%>
+
+---
+cluster: "<%= cluster %>"
+title: "RStudio - APCOMP 297R (GPU)"
+
+attributes:
+  imagefile: rstudio-apcomp297r-gpu.sif
+  
+  # Target the GPU queue (g5.2xlarge or g6.2xlarge instances)
+  bc_queue: "gpu"
+  
+  custom_num_cores:
+    widget: "number_field"
+    label: "Number of CPUs"
+    value: 2
+    min: 1
+    max: 8
+    step: 1
+    help: "g5.2xlarge/g6.2xlarge have 8 vCPUs"
+  
+  # GPU allocation - fixed at 1 GPU for this course
+  # GPU type (A10G or L4) selected automatically by AWS based on lowest cost
+  # Both GPUs have 24GB VRAM and are compatible with the container
+  custom_num_gpus: 1
+  
+  bc_num_hours:
+    value: 2
+    min: 1
+    max: 6
+    step: 1
+    help: "Max 6 hours for GPU jobs"
+
+  r_libpath: "/shared/courseSharedFolders/162018outer/162018/R/x86_64-pc-linux-gnu-library/4.5"
+
+form:
+  - bc_queue
+  - custom_num_cores
+  - bc_num_hours
+  - imagefile
+  - r_libpath
