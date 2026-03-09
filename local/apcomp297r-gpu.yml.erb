@@ -62,10 +62,15 @@ attributes:
 
   r_libpath: "/shared/courseSharedFolders/162018outer/162018/R/x86_64-pc-linux-gnu-library/4.4"
 
+  # Any extra command line arguments to feed to the `jupyter notebook ...`
+  # command that launches the Jupyter notebook within the batch job
+  extra_jupyter_args: ""
+
 form:
-  - bc_queue
   - custom_num_cores
-  - custom_num_gpus
   - bc_num_hours
   - imagefile
   - r_libpath
+  - bc_queue
+  - custom_num_gpus
+  - extra_jupyter_args

@@ -1,21 +1,22 @@
 ---
-batch_connect:
-  template: "basic"
-  conn_params:
-    - csrf_token
-
-<%-
 # GPU resource allocation
 # If custom_num_gpus is set and > 0, request GPUs via --gpus-per-node
-if custom_num_gpus.blank? || custom_num_gpus.to_i == 0
+
+<%-
+if custom_num_gpus.blank?
   gpuArg = ""
 else
   gpuArg = "- \"--gpus-per-node=#{custom_num_gpus.to_i}\""
 end
 -%>
 
+batch_connect:
+  template: "basic"
+  conn_params:
+    - csrf_token
+
 script:
   native:
     - "--nodes=1"
     - "--cpus-per-task=<%= custom_num_cores.blank? ? 1 : custom_num_cores.to_i %>"
-    <%= gpuArg %>
+    <%= gpuArg.to_s %>
