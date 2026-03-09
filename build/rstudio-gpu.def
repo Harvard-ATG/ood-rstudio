@@ -1,5 +1,5 @@
 Bootstrap: docker
-From: rocker/ml-verse:4..1
+From: rocker/ml-verse:4.4.1
 
 %post -c /bin/bash
 
