@@ -46,14 +46,14 @@ attributes:
   # Target the GPU queue (g5.2xlarge or g6.2xlarge instances)
   bc_queue: "gpu"
   
-  custom_num_cores:
-    widget: "number_field"
-    label: "Number of CPUs"
-    value: 2
-    min: 1
-    max: 8
-    step: 1
-    help: "g5.2xlarge/g6.2xlarge have 8 vCPUs"
+  custom_num_cores: 12
+    # widget: "number_field"
+    # label: "Number of CPUs"
+    # value: 2
+    # min: 1
+    # max: 8
+    # step: 1
+    # help: "g5.2xlarge/g6.2xlarge have 8 vCPUs"
   
   # GPU allocation - fixed at 1 GPU for this course
   # GPU type (A10G or L4) selected automatically by AWS based on lowest cost
@@ -72,6 +72,7 @@ attributes:
 form:
   - bc_queue
   - custom_num_cores
+  - customer_num_gpus
   - bc_num_hours
   - imagefile
   - r_libpath
