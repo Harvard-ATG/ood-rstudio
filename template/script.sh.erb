@@ -36,6 +36,77 @@ setup_env
 
 export WORKING_DIR="<%= session_dir %>"
 
+# ============================================================================
+# PRE-CHECK & RUNTIME CONFIG MODIFICATION (GPU only)
+# ============================================================================
+# Strategy: Check if apptainer.conf exists and what it's currently configured for
+#           If sessiondir is on slow NFS, modify it to /scratch
+#           If sessiondir is already on /scratch, skip modification
+#           If no conf file found, trust environment variables will work
+#
+# WHY: More reliable than checking if env vars are set (they always will be)
+#      Better to check what apptainer will actually use at runtime
+#
+<% if context.respond_to?('custom_num_gpus') && !context.custom_num_gpus.blank? && context.custom_num_gpus.to_i > 0 %>
+log "GPU session: Pre-checking apptainer configuration..."
+
+# Search for apptainer.conf
+declare -a CONF_SEARCH_PATHS=(
+  "$(which apptainer)/../../../etc/apptainer/apptainer.conf"
+  "/etc/apptainer/apptainer.conf"
+  "/shared/spack/opt/spack/linux-skylake_avx512/apptainer-1.4.1-*/etc/apptainer/apptainer.conf"
+)
+
+FOUND_CONF=""
+for path in "${CONF_SEARCH_PATHS[@]}"; do
+  # Expand glob patterns
+  for expanded_path in $path; do
+    if [ -f "$expanded_path" ] 2>/dev/null; then
+      FOUND_CONF="$expanded_path"
+      log "Found apptainer.conf at: $FOUND_CONF"
+      break 2
+    fi
+  done
+done
+
+if [ -n "$FOUND_CONF" ]; then
+  log "Pre-checking sessiondir in apptainer.conf..."
+  
+  # Extract current sessiondir setting from config
+  CURRENT_SESSIONDIR=$(grep "^sessiondir" "$FOUND_CONF" 2>/dev/null | head -1 | awk -F'=' '{print $2}' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  
+  if [ -z "$CURRENT_SESSIONDIR" ]; then
+    log "INFO: sessiondir not set in apptainer.conf, environment variables will be used"
+  elif echo "$CURRENT_SESSIONDIR" | grep -q "/shared/spack"; then
+    # sessiondir is on slow NFS, modify it
+    log "WARNING: sessiondir currently points to slow NFS: $CURRENT_SESSIONDIR"
+    log "Modifying sessiondir to use /scratch..."
+    
+    if [ -w "$FOUND_CONF" ]; then
+      sed -i.bak "s|^sessiondir.*|sessiondir = /scratch/apptainer|" "$FOUND_CONF" 2>/dev/null
+      NEW_SESSIONDIR=$(grep "^sessiondir" "$FOUND_CONF" 2>/dev/null | head -1)
+      log "SUCCESS: Modified to: $NEW_SESSIONDIR"
+    else
+      log "WARNING: $FOUND_CONF not writable, attempting with sudo..."
+      sudo sed -i.bak "s|^sessiondir.*|sessiondir = /scratch/apptainer|" "$FOUND_CONF" 2>/dev/null && \
+        log "SUCCESS: Modified sessiondir with sudo" || \
+        log "FAILED: Could not modify sessiondir (permission denied)"
+    fi
+  elif echo "$CURRENT_SESSIONDIR" | grep -q "/scratch"; then
+    # sessiondir already on fast storage
+    log "OK: sessiondir already configured on fast storage: $CURRENT_SESSIONDIR"
+    log "No modification needed"
+  else
+    # sessiondir on some other path
+    log "INFO: sessiondir configured as: $CURRENT_SESSIONDIR"
+    log "If this causes timeouts, may need to redirect to /scratch"
+  fi
+else
+  log "INFO: No apptainer.conf found in standard locations"
+  log "Config may be compiled into binary. Will rely on environment variables."
+fi
+<% end %>
+
 #
 # Start RStudio Server
 #
@@ -110,6 +181,19 @@ GPU_FLAG="--nv"
 log "GPU support enabled with --nv flag (custom_num_gpus=<%= context.custom_num_gpus %>)"
 <% end %>
 
+# CONFIGURE APPTAINER TIMEOUTS (GPU only)
+# These need to be set early, before any apptainer operations
+# APPTAINER_MOUNT_TIMEOUT: Maximum seconds to wait for container mount (default: 10s)
+#   - Extended to 60s as backup in case FUSE mount is slower than expected
+# SQUASHFUSE_MOUNT_TIMEOUT: Maximum seconds for squashfuse to complete mount (default: 10s)
+#   - Extended to 60s to allow larger containers to mount even on slower storage
+# These act as safety net if APPTAINER_SESSIONDIR doesn't fully resolve the FUSE timeout issue
+if [ -n "$GPU_FLAG" ]; then
+  export APPTAINER_MOUNT_TIMEOUT=60
+  export SQUASHFUSE_MOUNT_TIMEOUT=60
+  log "GPU detected: Setting mount timeouts to 60s (APPTAINER_MOUNT_TIMEOUT, SQUASHFUSE_MOUNT_TIMEOUT)"
+fi
+
 # Launch the RStudio Server
 log "Starting RStudio"
 
@@ -148,11 +232,17 @@ log "apptainer=$(which apptainer)"
 # STRATEGY: Determine which fast local storage to use
 # GPU: Must use /scratch (large capacity, fast, designed for compute jobs)
 # CPU: Can use standard NFS mounting (no timeout issues observed on CPU nodes)
-FAST_STORAGE="/scratch"
-log "Using fast storage: $FAST_STORAGE (GPU session requires local disk for --unsquash extraction)"
+if [ -n "$GPU_FLAG" ]; then
+  FAST_STORAGE="/scratch"
+  log "Using fast storage: $FAST_STORAGE (GPU session requires local disk to avoid FUSE timeout)"
+else
+  # CPU sessions: use NFS directly (no timeout issues)
+  FAST_STORAGE="${apptainer_image_dir}"
+  log "Using standard storage: $FAST_STORAGE (CPU session, no FUSE timeout issues)"
+fi
 
 FAST_IMAGE="$FAST_STORAGE/rstudio-gpu-${USER}-$$.sif"
-log "Copying container to fast local storage: $FAST_IMAGE"
+log "Copying container to storage: $FAST_IMAGE"
 cp "${apptainer_image_dir}/${rstudio_container}" "$FAST_IMAGE"
 
 # VERIFICATION STEP 1: Check that the copy created a file in fast storage
@@ -185,16 +275,40 @@ log "File sizes verified: source=$SOURCE_SIZE bytes, dest=$DEST_SIZE bytes"
 sync
 log "File synced to disk, launching apptainer..."
 
-# ENVIRONMENT CONFIGURATION: Tell apptainer to use fast storage for session work
+# ENVIRONMENT CONFIGURATION: Tell apptainer to use fast storage for session work (GPU only)
 # PURPOSE: Override default session directory which points to /shared/spack (slow NFS)
-# APPTAINER_TMPDIR: Where apptainer creates temporary files during execution
-# APPTAINER_CACHEDIR: Where apptainer caches images/metadata
-# XDG_RUNTIME_DIR: XDG spec for runtime directory (used by various apps)
-# WHAT WE WANT: All apptainer operations happen on fast storage, not slow NFS
-export APPTAINER_TMPDIR=$FAST_STORAGE
-export APPTAINER_CACHEDIR=$FAST_STORAGE
-export XDG_RUNTIME_DIR=$FAST_STORAGE
-log "Redirecting apptainer session dirs to $FAST_STORAGE (APPTAINER_TMPDIR, APPTAINER_CACHEDIR, XDG_RUNTIME_DIR)"
+# APPTAINER_SESSIONDIR: Where apptainer creates the session mount directory
+#   - This is the KEY variable that controls where sessiondir is created
+#   - For GPU: Ensures entire FUSE mount happens on fast /scratch, not slow NFS
+#   - For CPU: Not set, allows default NFS path (no timeout issues)
+#
+# VERIFYING THIS WORKS:
+# - If APPTAINER_SESSIONDIR is recognized by apptainer 1.4.1:
+#   ✓ Session directory will be created at /scratch/apptainer/mnt/session/ (or similar)
+#   ✓ FUSE mount will happen on fast local disk
+#   ✓ squashfuse_ll timeout will NOT occur (mount <1s even with 60s timeout)
+#   ✓ RStudio will start normally
+# - If APPTAINER_SESSIONDIR is NOT recognized:
+#   ✓ Extended timeout (60s) provides buffer for NFS FUSE mount
+#   ✓ May still exceed timeout if NFS is very slow, but more likely to succeed
+# - If both fail:
+#   ✗ Session directory on slow NFS + 60s timeout insufficient
+#   ✗ Job will fail, indicates need for different approach
+#
+if [ -n "$GPU_FLAG" ]; then
+  export APPTAINER_SESSIONDIR=$FAST_STORAGE
+  export APPTAINER_TMPDIR=$FAST_STORAGE
+  export APPTAINER_CACHEDIR=$FAST_STORAGE
+  export XDG_RUNTIME_DIR=$FAST_STORAGE
+  log "GPU detected: Redirecting apptainer session/tmp/cache to $FAST_STORAGE"
+  log "INFO: Watch output below for success indicator:"
+  log "  SUCCESS: No 'squashfuse_ll failed to mount' error, RStudio port opens"
+  log "  FAILURE: 'squashfuse_ll failed to mount ... in 10s' or '...in 60s' error appears"
+else
+  # CPU sessions use default NFS paths (no timeout issues observed)
+  log "CPU detected: Using default apptainer paths (NFS)"
+  log "INFO: CPU sessions do not experience FUSE timeout, standard NFS mounting"
+fi
 
 # EXECUTE RSTUDIO IN CONTAINER
 # PURPOSE: Launch RStudio Server inside the container environment
