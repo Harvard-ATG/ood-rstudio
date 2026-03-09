@@ -115,6 +115,15 @@ log "Starting RStudio"
 
 log "apptainer=$(which apptainer)"
 
-apptainer exec ${GPU_FLAG} $SING_BINDS "${apptainer_image_dir}/${rstudio_container}" ${JOBROOT}/rstudio.script.sh
+# Set apptainer/squashfuse mount timeouts to prevent timeout on large container images
+# Default 10s timeout can be insufficient for large .sif files on shared filesystems
+export APPTAINER_MOUNT_TIMEOUT=30
+export SQUASHFUSE_MOUNT_TIMEOUT=30
+log "Mount timeouts set: APPTAINER_MOUNT_TIMEOUT=30s, SQUASHFUSE_MOUNT_TIMEOUT=30s"
+
+# apptainer exec ${GPU_FLAG} $SING_BINDS "${apptainer_image_dir}/${rstudio_container}" ${JOBROOT}/rstudio.script.sh
+
+# Uses the array directly instead of expanding it into a string variable to avoid issues with word splitting and quoting of the bind mounts when stored in a string variable.
+apptainer exec ${GPU_FLAG} ${SING_BIND_LIST[@]} "${apptainer_image_dir}/${rstudio_container}" ${JOBROOT}/rstudio.script.sh
 
 log "Apptainer logs:\n$(apptainer instance list --logs)"
