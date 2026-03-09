@@ -19,6 +19,9 @@ apptainer_image_dir="/shared/apptainerImages"
 rstudio_container="<%= context.imagefile %>"
 
 # Load the required environment
+export APPTAINER_MOUNT_TIMEOUT=60
+export SQUASHFUSE_MOUNT_TIMEOUT=60
+
 setup_env () {
   # Load spack
   spack_root="/shared/spack"
