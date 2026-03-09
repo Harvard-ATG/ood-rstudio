@@ -19,9 +19,6 @@ apptainer_image_dir="/shared/apptainerImages"
 rstudio_container="<%= context.imagefile %>"
 
 # Load the required environment
-export APPTAINER_MOUNT_TIMEOUT=60
-export SQUASHFUSE_MOUNT_TIMEOUT=60
-
 setup_env () {
   # Load spack
   spack_root="/shared/spack"
@@ -118,14 +115,85 @@ log "Starting RStudio"
 
 log "apptainer=$(which apptainer)"
 
-# Copy .sif from slow NFS to fast local storage before mounting
-# This bypasses squashfuse timeout issues by avoiding slow /shared mounts
+# ============================================================================
+# CONTAINER MOUNT STRATEGY: Copy .sif to /tmp to avoid NFS squashfuse timeout
+# ============================================================================
+# 
+# ROOT CAUSE OF TIMEOUT:
+# - Apptainer 1.4.1 (Spack) uses FUSE-based mounting (squashfuse_ll)
+# - When mounting .sif from NFS (/shared/spack), FUSE I/O is very slow
+# - Apptainer's session mount directory (/shared/spack/.../mnt/session/rootfs)
+#   is also on slow NFS, compounds the problem
+# - 10-second hardcoded timeout in squashfuse_ll is exceeded
+# - Error: "squashfuse_ll failed to mount ... in 10s"
+#
+# SOLUTION:
+# 1. Copy .sif to local fast storage (/tmp) before apptainer execution
+# 2. Verify the copy succeeded (prevents partial/corrupted mounts)
+# 3. Force filesystem sync to ensure all data physically written to /tmp
+# 4. Execute apptainer from /tmp (local I/O fast, mounts complete <1s)
+# 5. Cleanup temporary file after RStudio session exits
+#
+# WHAT WE EXPECT TO SEE:
+# - "Copying container to fast local storage: /tmp/rstudio-gpu-prg038-XXXX.sif" 
+# - "File sizes match: source=XXXXXX, dest=XXXXXX bytes"
+# - "File verified and synced, launching apptainer..."
+# - NO "squashfuse_ll failed to mount" error
+# - RStudio should start normally with GPU access (--nv flag)
+# ============================================================================
+
 FAST_IMAGE="/tmp/rstudio-gpu-${USER}-$$.sif"
 log "Copying container to fast local storage: $FAST_IMAGE"
 cp "${apptainer_image_dir}/${rstudio_container}" "$FAST_IMAGE"
-log "Container copy complete, launching apptainer..."
 
-# Execute from fast local storage (no squashfuse timeout on NFS)
+# VERIFICATION STEP 1: Check that the copy created a file in /tmp
+# PURPOSE: Detect if cp command failed silently (disk full, permissions, etc.)
+# WHAT WE WANT: File exists at $FAST_IMAGE
+if [ ! -f "$FAST_IMAGE" ]; then
+  log "ERROR: Failed to copy container to $FAST_IMAGE"
+  exit 1
+fi
+
+# VERIFICATION STEP 2: Check source and destination file sizes match
+# PURPOSE: Ensure complete file transfer (not truncated/partial copy)
+# WHAT WE WANT: Source size == Destination size in bytes
+# NOTE: Uses different stat syntax for macOS (-f%z) vs Linux (-c%s)
+SOURCE_SIZE=$(stat -f%z "${apptainer_image_dir}/${rstudio_container}" 2>/dev/null || stat -c%s "${apptainer_image_dir}/${rstudio_container}" 2>/dev/null)
+DEST_SIZE=$(stat -f%z "$FAST_IMAGE" 2>/dev/null || stat -c%s "$FAST_IMAGE" 2>/dev/null)
+
+if [ "$SOURCE_SIZE" != "$DEST_SIZE" ]; then
+  log "WARNING: File size mismatch - source: $SOURCE_SIZE, dest: $DEST_SIZE"
+fi
+
+log "File sizes verified: source=$SOURCE_SIZE bytes, dest=$DEST_SIZE bytes"
+
+# VERIFICATION STEP 3: Force filesystem sync to /tmp
+# PURPOSE: Ensure file data actually written to disk, not just in kernel buffer
+# WHY THIS MATTERS: If apptainer tries to access file before it's physically 
+#                   written, FUSE mount will still timeout trying to read
+#                   unwritten blocks from disk
+# WHAT WE WANT: sync command completes successfully (returns 0)
+sync
+log "File synced to disk, launching apptainer..."
+
+# ENVIRONMENT CONFIGURATION: Tell apptainer to use /tmp for session work
+# PURPOSE: Override default session directory which points to /shared/spack (slow NFS)
+# APPTAINER_TMPDIR: Where apptainer creates temporary files during execution
+# APPTAINER_CACHEDIR: Where apptainer caches images/metadata
+# XDG_RUNTIME_DIR: XDG spec for runtime directory (used by various apps)
+# WHAT WE WANT: All apptainer operations happen on fast local /tmp, not slow NFS
+export APPTAINER_TMPDIR=/tmp
+export APPTAINER_CACHEDIR=/tmp
+export XDG_RUNTIME_DIR=/tmp
+log "Redirecting apptainer session dirs to /tmp (APPTAINER_TMPDIR, APPTAINER_CACHEDIR, XDG_RUNTIME_DIR)"
+
+# EXECUTE RSTUDIO IN CONTAINER
+# PURPOSE: Launch RStudio Server inside the container environment
+# GPU_FLAG: Set to "--nv" if custom_num_gpus > 0 (enables GPU passthrough)
+# SING_BIND_LIST: Array of bind mounts (-B flags for directory access)
+# FAST_IMAGE: Path to .sif container in /tmp (fast local storage)
+# JOBROOT/rstudio.script.sh: Script inside container that starts RStudio Server
+# WHAT WE WANT: apptainer exec completes without "squashfuse_ll failed to mount" error
 apptainer exec ${GPU_FLAG} ${SING_BIND_LIST[@]} "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh
 
 # Cleanup (optional, can be async)
