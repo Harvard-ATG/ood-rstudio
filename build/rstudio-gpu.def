@@ -1,15 +1,16 @@
 Bootstrap: docker
-From: rocker/ml-verse:4.4.1
+From: rocker/ml-verse:4..1
 
 %post -c /bin/bash
 
 # Install minimal system dependencies to use GPU stat
 apt-get update && apt-get install -y \
     python3-pip \
-    python3-dev
+    python3-dev \
+    libpcre2-dev
 
 R_PACKAGES=(
-    "torch
+    "torch"
     "data.table"
     "xgboost"
     "lightgbm"
