@@ -252,13 +252,11 @@ log "Redirecting apptainer session dirs to $FAST_STORAGE (APPTAINER_TMPDIR, APPT
 # WHAT WE WANT: apptainer exec completes without "squashfuse_ll failed to mount" error
 
 if [ -n "$GPU_FLAG" ]; then
-  # GPU session: use --unsquash to bypass FUSE timeout on slow NFS
-  # Will extract 6.6GB .sif to fast storage, mount as directory instead of FUSE
-  log "GPU session detected: using --unsquash to extract container and avoid FUSE timeout"
-  apptainer exec --unsquash ${GPU_FLAG} ${SING_BIND_LIST[@]} "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh
+  # GPU session: standard FUSE mounting, but .sif is on fast /scratch so no timeout
+  log "GPU session detected: using standard FUSE mounting from /scratch (fast local storage)"
+  apptainer exec ${GPU_FLAG} ${SING_BIND_LIST[@]} "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh
 else
-  # CPU session: use standard FUSE mounting (no timeout issues observed)
-  # SquashFS compression keeps memory footprint lower, FUSE handles I/O
+  # CPU session: use standard FUSE mounting from NFS (no timeout issues observed)
   log "CPU session detected: using standard FUSE mounting (SquashFS compressed)"
   apptainer exec ${GPU_FLAG} ${SING_BIND_LIST[@]} "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh
 fi
