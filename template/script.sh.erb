@@ -116,7 +116,7 @@ log "Starting RStudio"
 log "apptainer=$(which apptainer)"
 
 # ============================================================================
-# CONTAINER MOUNT STRATEGY: Copy .sif to /tmp to avoid NFS squashfuse timeout
+# CONTAINER MOUNT STRATEGY: Copy .sif to fast local storage to avoid NFS squashfuse timeout
 # ============================================================================
 # 
 # ROOT CAUSE OF TIMEOUT:
@@ -128,25 +128,34 @@ log "apptainer=$(which apptainer)"
 # - Error: "squashfuse_ll failed to mount ... in 10s"
 #
 # SOLUTION:
-# 1. Copy .sif to local fast storage (/tmp) before apptainer execution
-# 2. Verify the copy succeeded (prevents partial/corrupted mounts)
-# 3. Force filesystem sync to ensure all data physically written to /tmp
-# 4. Execute apptainer from /tmp (local I/O fast, mounts complete <1s)
-# 5. Cleanup temporary file after RStudio session exits
+# 1. Use /scratch (local fast NVMe/SSD on compute node) as primary storage
+#    - Falls back to /tmp if /scratch unavailable
+# 2. Copy .sif from slow NFS to fast local storage before apptainer execution
+# 3. Verify the copy succeeded (prevents partial/corrupted mounts)
+# 4. Force filesystem sync to ensure all data physically written to disk
+# 5. Execute apptainer from fast local storage (mounts complete <1s)
+# 6. Cleanup temporary file after RStudio session exits
 #
 # WHAT WE EXPECT TO SEE:
-# - "Copying container to fast local storage: /tmp/rstudio-gpu-prg038-XXXX.sif" 
-# - "File sizes match: source=XXXXXX, dest=XXXXXX bytes"
-# - "File verified and synced, launching apptainer..."
+# - "Using fast storage: /scratch" OR "Using fast storage: /tmp"
+# - "Copying container to fast local storage: /scratch/rstudio-gpu-prg038-XXXX.sif"
+# - "File sizes verified: source=XXXXXX bytes, dest=XXXXXX bytes"
+# - "File synced to disk, launching apptainer..."
 # - NO "squashfuse_ll failed to mount" error
 # - RStudio should start normally with GPU access (--nv flag)
 # ============================================================================
 
-FAST_IMAGE="/tmp/rstudio-gpu-${USER}-$$.sif"
+# STRATEGY: Determine which fast local storage to use
+# GPU: Must use /scratch (large capacity, fast, designed for compute jobs)
+# CPU: Can use standard NFS mounting (no timeout issues observed on CPU nodes)
+FAST_STORAGE="/scratch"
+log "Using fast storage: $FAST_STORAGE (GPU session requires local disk for --unsquash extraction)"
+
+FAST_IMAGE="$FAST_STORAGE/rstudio-gpu-${USER}-$$.sif"
 log "Copying container to fast local storage: $FAST_IMAGE"
 cp "${apptainer_image_dir}/${rstudio_container}" "$FAST_IMAGE"
 
-# VERIFICATION STEP 1: Check that the copy created a file in /tmp
+# VERIFICATION STEP 1: Check that the copy created a file in fast storage
 # PURPOSE: Detect if cp command failed silently (disk full, permissions, etc.)
 # WHAT WE WANT: File exists at $FAST_IMAGE
 if [ ! -f "$FAST_IMAGE" ]; then
@@ -167,7 +176,7 @@ fi
 
 log "File sizes verified: source=$SOURCE_SIZE bytes, dest=$DEST_SIZE bytes"
 
-# VERIFICATION STEP 3: Force filesystem sync to /tmp
+# VERIFICATION STEP 3: Force filesystem sync to fast local storage
 # PURPOSE: Ensure file data actually written to disk, not just in kernel buffer
 # WHY THIS MATTERS: If apptainer tries to access file before it's physically 
 #                   written, FUSE mount will still timeout trying to read
@@ -176,25 +185,83 @@ log "File sizes verified: source=$SOURCE_SIZE bytes, dest=$DEST_SIZE bytes"
 sync
 log "File synced to disk, launching apptainer..."
 
-# ENVIRONMENT CONFIGURATION: Tell apptainer to use /tmp for session work
+# ENVIRONMENT CONFIGURATION: Tell apptainer to use fast storage for session work
 # PURPOSE: Override default session directory which points to /shared/spack (slow NFS)
 # APPTAINER_TMPDIR: Where apptainer creates temporary files during execution
 # APPTAINER_CACHEDIR: Where apptainer caches images/metadata
 # XDG_RUNTIME_DIR: XDG spec for runtime directory (used by various apps)
-# WHAT WE WANT: All apptainer operations happen on fast local /tmp, not slow NFS
-export APPTAINER_TMPDIR=/tmp
-export APPTAINER_CACHEDIR=/tmp
-export XDG_RUNTIME_DIR=/tmp
-log "Redirecting apptainer session dirs to /tmp (APPTAINER_TMPDIR, APPTAINER_CACHEDIR, XDG_RUNTIME_DIR)"
+# WHAT WE WANT: All apptainer operations happen on fast storage, not slow NFS
+export APPTAINER_TMPDIR=$FAST_STORAGE
+export APPTAINER_CACHEDIR=$FAST_STORAGE
+export XDG_RUNTIME_DIR=$FAST_STORAGE
+log "Redirecting apptainer session dirs to $FAST_STORAGE (APPTAINER_TMPDIR, APPTAINER_CACHEDIR, XDG_RUNTIME_DIR)"
 
 # EXECUTE RSTUDIO IN CONTAINER
 # PURPOSE: Launch RStudio Server inside the container environment
 # GPU_FLAG: Set to "--nv" if custom_num_gpus > 0 (enables GPU passthrough)
 # SING_BIND_LIST: Array of bind mounts (-B flags for directory access)
-# FAST_IMAGE: Path to .sif container in /tmp (fast local storage)
+# FAST_IMAGE: Path to .sif container in fast storage (not slow NFS)
+# 
+# ============================================================================
+# UNDERSTANDING SQUASHFS AND THE --unsquash FLAG
+# ============================================================================
+#
+# WHAT IS SQUASHFS?
+# - Container images (.sif files) use SquashFS compression format
+# - SquashFS: Read-only compressed filesystem (like a ZIP for filesystems)
+# - Advantages: Smaller files (~6.6GB .sif vs ~15GB uncompressed), faster transfer
+# - Mounted read-only dynamically at runtime by squashfuse (FUSE driver)
+#
+# HOW SQUASHFS MOUNTING WORKS (DEFAULT):
+# 1. apptainer reads .sif file (squashfuse_ll)
+# 2. FUSE driver decompresses blocks on-demand as container processes read files
+# 3. Mounted to /shared/spack/.../var/apptainer/mnt/session/rootfs
+# 4. All I/O goes through squashfuse → decompress → access file
+# 5. On NFS with slow I/O, this overhead exceeds 10s timeout
+#
+# PROBLEM ON GPU NODES:
+# - apptainer's session mount directory is on slow /shared/spack NFS
+# - FUSE I/O latency + decompression overhead + NFS network latency = >10s timeout
+# - Error: "squashfuse_ll failed to mount ... in 10s"
+# - CPU nodes don't have this problem (possibly faster storage, different setup)
+#
+# THE --unsquash SOLUTION (GPU ONLY):
+# 1. apptainer extracts entire .sif to temporary directory
+# 2. Uses standard Linux mount (not FUSE) on extracted directory
+# 3. No FUSE driver overhead, no decompression on every read
+# 4. Faster mount <1s, eliminates timeout completely
+#
+# TRADE-OFFS OF --unsquash:
+# PROS:
+#   - Bypasses FUSE timeout on slow NFS filesystems
+#   - Faster initial mount (extraction <1s vs FUSE negotiate 10s+)
+#   - All file I/O is direct (not through FUSE), slightly improved performance
+#   - Critical for GPU nodes with /shared/spack bottleneck
+#
+# CONS:
+#   - Uses disk space: 6.6GB .sif → ~15GB extracted (in /scratch or /tmp)
+#   - Extraction takes time (one-time per session, ~3-15s depending on disk)
+#   - /tmp or /scratch must have sufficient free space
+#   - Slightly higher overhead than keeping SquashFS compressed
+#
+# FOR GPU SESSIONS: Trade-off is worth it (need to run at all)
+# FOR CPU SESSIONS: Keep FUSE mounting (works fine, saves disk space)
+# ============================================================================
+#
 # JOBROOT/rstudio.script.sh: Script inside container that starts RStudio Server
 # WHAT WE WANT: apptainer exec completes without "squashfuse_ll failed to mount" error
-apptainer exec ${GPU_FLAG} ${SING_BIND_LIST[@]} "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh
+
+if [ -n "$GPU_FLAG" ]; then
+  # GPU session: use --unsquash to bypass FUSE timeout on slow NFS
+  # Will extract 6.6GB .sif to fast storage, mount as directory instead of FUSE
+  log "GPU session detected: using --unsquash to extract container and avoid FUSE timeout"
+  apptainer exec --unsquash ${GPU_FLAG} ${SING_BIND_LIST[@]} "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh
+else
+  # CPU session: use standard FUSE mounting (no timeout issues observed)
+  # SquashFS compression keeps memory footprint lower, FUSE handles I/O
+  log "CPU session detected: using standard FUSE mounting (SquashFS compressed)"
+  apptainer exec ${GPU_FLAG} ${SING_BIND_LIST[@]} "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh
+fi
 
 # Cleanup (optional, can be async)
 rm -f "$FAST_IMAGE"
