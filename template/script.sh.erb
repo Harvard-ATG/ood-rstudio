@@ -24,12 +24,17 @@ setup_env () {
   spack_root="/shared/spack"
   log "Spack root: $spack_root"
   . $spack_root/share/spack/setup-env.sh
-  log "Activated spack install."
-
-  # Load the required environment
-  log "Loading spack environment: $spack_environment"
-  spack env activate $spack_environment
-  log "Spack environment loaded."
+  
+  # DO NOT use 'spack env activate' or 'spack load' as they run Python that crashes with Status -4
+  # Instead, find the raw apptainer binary directly
+  log "Finding apptainer binary directly (bypassing Python spack env)..."
+  APPTAINER_BIN=$(spack location -i apptainer 2>/dev/null)/bin/apptainer
+  if [ ! -x "$APPTAINER_BIN" ]; then
+    log "WARNING: Could not find apptainer binary at $APPTAINER_BIN, falling back to PATH"
+    APPTAINER_BIN=$(which apptainer)
+  fi
+  export APPTAINER_BIN
+  log "Using apptainer binary: $APPTAINER_BIN"
 }
 
 setup_env
@@ -37,74 +42,18 @@ setup_env
 export WORKING_DIR="<%= session_dir %>"
 
 # ============================================================================
-# PRE-CHECK & RUNTIME CONFIG MODIFICATION (GPU only)
+# GPU SESSION PRE-CHECKS
 # ============================================================================
-# Strategy: Check if apptainer.conf exists and what it's currently configured for
-#           If sessiondir is on slow NFS, modify it to /scratch
-#           If sessiondir is already on /scratch, skip modification
-#           If no conf file found, trust environment variables will work
-#
-# WHY: More reliable than checking if env vars are set (they always will be)
-#      Better to check what apptainer will actually use at runtime
+# NOTE: apptainer.conf modifications are NOT attempted because:
+#   1. NFS root_squash prevents writes to /shared/spack even as root
+#   2. Spack installations are read-only to prevent stack corruption
+#   3. Environment variables (APPTAINER_SESSIONDIR, --unsquash) are the proper approach
 #
 <% if context.respond_to?('custom_num_gpus') && !context.custom_num_gpus.blank? && context.custom_num_gpus.to_i > 0 %>
-log "GPU session: Pre-checking apptainer configuration..."
-
-# Search for apptainer.conf
-declare -a CONF_SEARCH_PATHS=(
-  "$(which apptainer)/../../../etc/apptainer/apptainer.conf"
-  "/etc/apptainer/apptainer.conf"
-  "/shared/spack/opt/spack/linux-skylake_avx512/apptainer-1.4.1-*/etc/apptainer/apptainer.conf"
-)
-
-FOUND_CONF=""
-for path in "${CONF_SEARCH_PATHS[@]}"; do
-  # Expand glob patterns
-  for expanded_path in $path; do
-    if [ -f "$expanded_path" ] 2>/dev/null; then
-      FOUND_CONF="$expanded_path"
-      log "Found apptainer.conf at: $FOUND_CONF"
-      break 2
-    fi
-  done
-done
-
-if [ -n "$FOUND_CONF" ]; then
-  log "Pre-checking sessiondir in apptainer.conf..."
-  
-  # Extract current sessiondir setting from config
-  CURRENT_SESSIONDIR=$(grep "^sessiondir" "$FOUND_CONF" 2>/dev/null | head -1 | awk -F'=' '{print $2}' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-  
-  if [ -z "$CURRENT_SESSIONDIR" ]; then
-    log "INFO: sessiondir not set in apptainer.conf, environment variables will be used"
-  elif echo "$CURRENT_SESSIONDIR" | grep -q "/shared/spack"; then
-    # sessiondir is on slow NFS, modify it
-    log "WARNING: sessiondir currently points to slow NFS: $CURRENT_SESSIONDIR"
-    log "Modifying sessiondir to use /scratch..."
-    
-    if [ -w "$FOUND_CONF" ]; then
-      sed -i.bak "s|^sessiondir.*|sessiondir = /scratch/apptainer|" "$FOUND_CONF" 2>/dev/null
-      NEW_SESSIONDIR=$(grep "^sessiondir" "$FOUND_CONF" 2>/dev/null | head -1)
-      log "SUCCESS: Modified to: $NEW_SESSIONDIR"
-    else
-      log "WARNING: $FOUND_CONF not writable, attempting with sudo..."
-      sudo sed -i.bak "s|^sessiondir.*|sessiondir = /scratch/apptainer|" "$FOUND_CONF" 2>/dev/null && \
-        log "SUCCESS: Modified sessiondir with sudo" || \
-        log "FAILED: Could not modify sessiondir (permission denied)"
-    fi
-  elif echo "$CURRENT_SESSIONDIR" | grep -q "/scratch"; then
-    # sessiondir already on fast storage
-    log "OK: sessiondir already configured on fast storage: $CURRENT_SESSIONDIR"
-    log "No modification needed"
-  else
-    # sessiondir on some other path
-    log "INFO: sessiondir configured as: $CURRENT_SESSIONDIR"
-    log "If this causes timeouts, may need to redirect to /scratch"
-  fi
-else
-  log "INFO: No apptainer.conf found in standard locations"
-  log "Config may be compiled into binary. Will rely on environment variables."
-fi
+# GPU DEBUG SECTION - COMMENTED OUT (using direct binary strategy instead)
+# Uncomment below if you need detailed debugging of apptainer.conf
+# log "GPU session: Debugging apptainer.conf and sessiondir..."
+# [debug code would go here]
 <% end %>
 
 #
@@ -171,8 +120,7 @@ SING_BIND_LIST=(
   "-B" "/shared/spack"
   "-B" "$WORKING_DIR/etc/rstudio:/etc/rstudio"
 )
-SING_BINDS="${SING_BIND_LIST[@]}"
-log "SING_BINDS=${SING_BINDS}"
+log "SING_BIND_LIST: ${SING_BIND_LIST[*]}"
 
 # Add GPU support if GPUs are requested
 GPU_FLAG=""
@@ -230,41 +178,59 @@ log "apptainer=$(which apptainer)"
 # ============================================================================
 
 # STRATEGY: Determine which fast local storage to use
-# GPU: Must use /scratch (large capacity, fast, designed for compute jobs)
+# GPU: Check for cached copy in /scratch/apptainerImages first
+#      If not there, copy once from /shared and reuse
 # CPU: Can use standard NFS mounting (no timeout issues observed on CPU nodes)
 if [ -n "$GPU_FLAG" ]; then
-  FAST_STORAGE="/scratch"
-  log "Using fast storage: $FAST_STORAGE (GPU session requires local disk to avoid FUSE timeout)"
+  FAST_STORAGE="/scratch/apptainerImages"
+  
+  # Ensure directory exists
+  mkdir -p "$FAST_STORAGE"
+  
+  # Check if we already have a cached copy
+  FAST_IMAGE="$FAST_STORAGE/rstudio-gpu.sif"
+  
+  if [ -f "$FAST_IMAGE" ]; then
+    log "Using fast storage: $FAST_STORAGE (cached copy of rstudio-gpu.sif found)"
+  else
+    log "Using fast storage: $FAST_STORAGE (GPU session requires local disk to avoid FUSE timeout)"
+    log "Copying container from NFS to fast local storage: $FAST_IMAGE"
+    cp "${apptainer_image_dir}/${rstudio_container}" "$FAST_IMAGE"
+    
+    if [ ! -f "$FAST_IMAGE" ]; then
+      log "WARNING: Failed to copy to $FAST_STORAGE, will attempt fallback to /shared"
+      FAST_IMAGE="${apptainer_image_dir}/${rstudio_container}"
+    else
+      # Ensure /scratch copy is world-readable for all users
+      chmod 644 "$FAST_IMAGE"
+      log "Set permissions on cached image (644)"
+    fi
+  fi
 else
   # CPU sessions: use NFS directly (no timeout issues)
   FAST_STORAGE="${apptainer_image_dir}"
+  FAST_IMAGE="$FAST_STORAGE/${rstudio_container}"
   log "Using standard storage: $FAST_STORAGE (CPU session, no FUSE timeout issues)"
 fi
 
-FAST_IMAGE="$FAST_STORAGE/rstudio-gpu-${USER}-$$.sif"
-log "Copying container to storage: $FAST_IMAGE"
-cp "${apptainer_image_dir}/${rstudio_container}" "$FAST_IMAGE"
-
-# VERIFICATION STEP 1: Check that the copy created a file in fast storage
-# PURPOSE: Detect if cp command failed silently (disk full, permissions, etc.)
-# WHAT WE WANT: File exists at $FAST_IMAGE
+# VERIFICATION STEP 1: Check that the container file exists
 if [ ! -f "$FAST_IMAGE" ]; then
-  log "ERROR: Failed to copy container to $FAST_IMAGE"
+  log "ERROR: Container file not found at $FAST_IMAGE"
   exit 1
 fi
 
-# VERIFICATION STEP 2: Check source and destination file sizes match
-# PURPOSE: Ensure complete file transfer (not truncated/partial copy)
-# WHAT WE WANT: Source size == Destination size in bytes
-# NOTE: Uses different stat syntax for macOS (-f%z) vs Linux (-c%s)
-SOURCE_SIZE=$(stat -f%z "${apptainer_image_dir}/${rstudio_container}" 2>/dev/null || stat -c%s "${apptainer_image_dir}/${rstudio_container}" 2>/dev/null)
-DEST_SIZE=$(stat -f%z "$FAST_IMAGE" 2>/dev/null || stat -c%s "$FAST_IMAGE" 2>/dev/null)
-
-if [ "$SOURCE_SIZE" != "$DEST_SIZE" ]; then
-  log "WARNING: File size mismatch - source: $SOURCE_SIZE, dest: $DEST_SIZE"
+# VERIFICATION STEP 2: For newly copied files, check source and destination sizes match
+# (Skip for cached copies that already exist)
+if [ "$FAST_IMAGE" != "${apptainer_image_dir}/${rstudio_container}" ]; then
+  SOURCE_SIZE=$(stat -c%s "${apptainer_image_dir}/${rstudio_container}" 2>/dev/null || stat -f%z "${apptainer_image_dir}/${rstudio_container}" 2>/dev/null)
+  DEST_SIZE=$(stat -c%s "$FAST_IMAGE" 2>/dev/null || stat -f%z "$FAST_IMAGE" 2>/dev/null)
+  
+  if [ "$SOURCE_SIZE" != "$DEST_SIZE" ]; then
+    log "WARNING: File size mismatch - source: $SOURCE_SIZE, dest: $DEST_SIZE"
+  else
+    log "File sizes verified: source=$SOURCE_SIZE bytes, dest=$DEST_SIZE bytes"
+  fi
 fi
-
-log "File sizes verified: source=$SOURCE_SIZE bytes, dest=$DEST_SIZE bytes"
 
 # VERIFICATION STEP 3: Force filesystem sync to fast local storage
 # PURPOSE: Ensure file data actually written to disk, not just in kernel buffer
@@ -300,7 +266,24 @@ if [ -n "$GPU_FLAG" ]; then
   export APPTAINER_TMPDIR=$FAST_STORAGE
   export APPTAINER_CACHEDIR=$FAST_STORAGE
   export XDG_RUNTIME_DIR=$FAST_STORAGE
-  log "GPU detected: Redirecting apptainer session/tmp/cache to $FAST_STORAGE"
+  # For user FUSE sessions, use per-user directories in /scratch to avoid permission issues
+  # This is critical because user-space FUSE (squashfuse_ll) must create temp files
+  USER_SCRATCH="/scratch/$USER"
+  mkdir -p "$USER_SCRATCH"
+  
+  export APPTAINER_SESSIONDIR="$USER_SCRATCH"
+  export APPTAINER_TMPDIR="$USER_SCRATCH"
+  export APPTAINER_CACHEDIR="$USER_SCRATCH"
+  export XDG_RUNTIME_DIR="$USER_SCRATCH"
+  export APPTAINER_CONFIGDIR="$USER_SCRATCH"
+  
+  log "GPU detected: Redirecting user FUSE session dirs to $USER_SCRATCH"
+  log "Environment variables set:"
+  log "  APPTAINER_SESSIONDIR=$APPTAINER_SESSIONDIR"
+  log "  APPTAINER_TMPDIR=$APPTAINER_TMPDIR"
+  log "  APPTAINER_CACHEDIR=$APPTAINER_CACHEDIR"
+  log "  XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
+  log "  APPTAINER_BIN=$APPTAINER_BIN"
   log "INFO: Watch output below for success indicator:"
   log "  SUCCESS: No 'squashfuse_ll failed to mount' error, RStudio port opens"
   log "  FAILURE: 'squashfuse_ll failed to mount ... in 10s' or '...in 60s' error appears"
@@ -314,69 +297,23 @@ fi
 # PURPOSE: Launch RStudio Server inside the container environment
 # GPU_FLAG: Set to "--nv" if custom_num_gpus > 0 (enables GPU passthrough)
 # SING_BIND_LIST: Array of bind mounts (-B flags for directory access)
-# FAST_IMAGE: Path to .sif container in fast storage (not slow NFS)
-# 
-# ============================================================================
-# UNDERSTANDING SQUASHFS AND THE --unsquash FLAG
-# ============================================================================
-#
-# WHAT IS SQUASHFS?
-# - Container images (.sif files) use SquashFS compression format
-# - SquashFS: Read-only compressed filesystem (like a ZIP for filesystems)
-# - Advantages: Smaller files (~6.6GB .sif vs ~15GB uncompressed), faster transfer
-# - Mounted read-only dynamically at runtime by squashfuse (FUSE driver)
-#
-# HOW SQUASHFS MOUNTING WORKS (DEFAULT):
-# 1. apptainer reads .sif file (squashfuse_ll)
-# 2. FUSE driver decompresses blocks on-demand as container processes read files
-# 3. Mounted to /shared/spack/.../var/apptainer/mnt/session/rootfs
-# 4. All I/O goes through squashfuse → decompress → access file
-# 5. On NFS with slow I/O, this overhead exceeds 10s timeout
-#
-# PROBLEM ON GPU NODES:
-# - apptainer's session mount directory is on slow /shared/spack NFS
-# - FUSE I/O latency + decompression overhead + NFS network latency = >10s timeout
-# - Error: "squashfuse_ll failed to mount ... in 10s"
-# - CPU nodes don't have this problem (possibly faster storage, different setup)
-#
-# THE --unsquash SOLUTION (GPU ONLY):
-# 1. apptainer extracts entire .sif to temporary directory
-# 2. Uses standard Linux mount (not FUSE) on extracted directory
-# 3. No FUSE driver overhead, no decompression on every read
-# 4. Faster mount <1s, eliminates timeout completely
-#
-# TRADE-OFFS OF --unsquash:
-# PROS:
-#   - Bypasses FUSE timeout on slow NFS filesystems
-#   - Faster initial mount (extraction <1s vs FUSE negotiate 10s+)
-#   - All file I/O is direct (not through FUSE), slightly improved performance
-#   - Critical for GPU nodes with /shared/spack bottleneck
-#
-# CONS:
-#   - Uses disk space: 6.6GB .sif → ~15GB extracted (in /scratch or /tmp)
-#   - Extraction takes time (one-time per session, ~3-15s depending on disk)
-#   - /tmp or /scratch must have sufficient free space
-#   - Slightly higher overhead than keeping SquashFS compressed
-#
-# FOR GPU SESSIONS: Trade-off is worth it (need to run at all)
-# FOR CPU SESSIONS: Keep FUSE mounting (works fine, saves disk space)
-# ============================================================================
-#
-# JOBROOT/rstudio.script.sh: Script inside container that starts RStudio Server
-# WHAT WE WANT: apptainer exec completes without "squashfuse_ll failed to mount" error
+# APPTAINER_BIN: Direct path to apptainer binary (bypasses spack env to avoid Status -4 crash)
+# FAST_IMAGE: Path to .sif container (either cached in /scratch or fallback to /shared)
 
 if [ -n "$GPU_FLAG" ]; then
-  # GPU session: standard FUSE mounting, but .sif is on fast /scratch so no timeout
-  log "GPU session detected: using standard FUSE mounting from /scratch (fast local storage)"
-  apptainer exec ${GPU_FLAG} ${SING_BIND_LIST[@]} "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh
+  # GPU session: Use direct binary to avoid spack env crashes
+  # User-space FUSE (squashfuse_ll) will create session mounts in /scratch/$USER (fast)
+  # Extended timeout (60s) accounts for slow NFS /shared/.../mnt/session fallback
+  log "GPU session: Launching with direct apptainer binary from /scratch"
+  "$APPTAINER_BIN" exec ${GPU_FLAG} "${SING_BIND_LIST[@]}" "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh
 else
-  # CPU session: use standard FUSE mounting from NFS (no timeout issues observed)
-  log "CPU session detected: using standard FUSE mounting (SquashFS compressed)"
-  apptainer exec ${GPU_FLAG} ${SING_BIND_LIST[@]} "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh
+  # CPU session: standard FUSE mounting from /scratch or NFS, no timeout issues on CPU nodes
+  log "CPU session: Launching container"
+  "$APPTAINER_BIN" exec ${GPU_FLAG} "${SING_BIND_LIST[@]}" "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh
 fi
 
-# Cleanup (optional, can be async)
-rm -f "$FAST_IMAGE"
-log "Cleaned up temporary image"
+# Cleanup user-specific session directory (leave cached .sif in place)
+rm -rf "/scratch/$USER"
+log "Cleaned up user session directory /scratch/$USER"
 
-log "Apptainer logs:\n$(apptainer instance list --logs)"
+log "RStudio session ended"
