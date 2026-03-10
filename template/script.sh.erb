@@ -156,6 +156,6 @@ log "Starting RStudio"
 
 log "apptainer=$(which apptainer)"
 
-apptainer exec $SING_BINDS "$container_image" ${JOBROOT}/rstudio.script.sh
+apptainer exec $GPU_FLAG $SING_BINDS "$container_image" ${JOBROOT}/rstudio.script.sh
 
 log "Apptainer logs:\n$(apptainer instance list --logs)"
