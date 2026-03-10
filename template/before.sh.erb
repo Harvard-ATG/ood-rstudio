@@ -22,3 +22,6 @@ port=$(find_port ${host})
 export RSTUDIO_PASSWORD="${password}"
 
 export JOBROOT=$PWD
+
+# Extend Open OnDemand timeout to 15 minutes (900 seconds)
+export WAIT_SECONDS=900
