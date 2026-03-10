@@ -47,10 +47,7 @@ SING_BIND_LIST+=("--bind" "$USER_SCRATCH:/var/lib/rstudio-server")
 # ============================================================================
 # EXECUTION: THE "IGNORE FATAL ERRORS" WORKAROUND
 # ============================================================================
-log "Launching Apptainer. Disabling strict error checking (set +e)..."
-
-# Prevent Slurm/OOD from aborting if Apptainer throws an exit code 255
-set +e 
+log "Launching Apptainer..."
 
 CONTAINER_LOG="$USER_SCRATCH/rstudio_container.log"
 log "Routing all container output and errors to: $CONTAINER_LOG"
@@ -59,7 +56,7 @@ log "Routing all container output and errors to: $CONTAINER_LOG"
 # -q suppresses normal info messages.
 # > "$CONTAINER_LOG" 2>&1 captures the timeout error so it doesn't trigger OOD's kill switch.
 # || true forces the Bash script to view this command as a 'success' even if it fails.
-"$APPTAINER_BIN" exec -q ${GPU_FLAG} "${SING_BIND_LIST[@]}" "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh > "$CONTAINER_LOG" 2>&1 || true
+"$APPTAINER_BIN" exec ${GPU_FLAG} "${SING_BIND_LIST[@]}" "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh > "$CONTAINER_LOG" 2>&1 || true
 
 log "Apptainer execution block concluded. If the session died, check $CONTAINER_LOG"
 
