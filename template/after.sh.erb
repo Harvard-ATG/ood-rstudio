@@ -5,8 +5,12 @@ log() {
 }
 
 # Wait for the RStudio Server to start
+# Attempted: if wait_until_port_used "${host}:${port}" 900; then
+# Waitined about 15 minutes for the unsquashed image, but it hadn't
+# Fished after about 15 minutes, so I ended the process
+
 log "Waiting for RStudio Server to open port ${port}..."
-if wait_until_port_used "${host}:${port}" 900; then
+if wait_until_port_used "${host}:${port}" 120; then
   log "Discovered RStudio Server listening on port ${port}!"
 else
   log "Timed out waiting for RStudio Server to open port ${port}! on $(date)"
