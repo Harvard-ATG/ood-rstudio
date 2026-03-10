@@ -122,29 +122,29 @@ log "GPU support enabled with --nv flag (custom_num_gpus=<%= context.custom_num_
 # and takes longer to copy.
 apptainer_image_dir="/scratch/apptainerImages"
 
-# For GPU jobs, cache container on local /opt to avoid NFS FUSE timeout
-# The goal is to copy the container from NFS to local storage on the first run,
-# and then use the cached version on subsequent runs. This should speed up startup 
-# time for GPU jobs after the first run, while still allowing us to use a shared image 
-# from NFS for the initial run and for non-GPU jobs.
-# We hope to avoid the squashfuse_11 10s timeout.
-APPTAINER_CACHE_DIR="/opt/apptainer"
-CACHED_SIF="$APPTAINER_CACHE_DIR/rstudio-gpu.sif"
+# For GPU jobs, cache container on local storage to avoid NFS FUSE timeout
+# Strategy: Check /opt/apptainerImages (shared across nodes) first, 
+# then fall back to /tmp (local to node) if /opt not writable
+APPTAINER_SHARED_CACHE="/opt/apptainerImages/rstudio-gpu.sif"
+APPTAINER_LOCAL_CACHE="/tmp/apptainer-cache/rstudio-gpu.sif"
 
-if [ -f "$CACHED_SIF" ]; then
-  log "Using cached rstudio-gpu.sif from $CACHED_SIF (already present on this node)"
-  container_image="$CACHED_SIF"
+if [ -f "$APPTAINER_SHARED_CACHE" ]; then
+  log "Using cached rstudio-gpu.sif from shared storage: $APPTAINER_SHARED_CACHE"
+  container_image="$APPTAINER_SHARED_CACHE"
+elif [ -f "$APPTAINER_LOCAL_CACHE" ]; then
+  log "Using cached rstudio-gpu.sif from local /tmp: $APPTAINER_LOCAL_CACHE"
+  container_image="$APPTAINER_LOCAL_CACHE"
 else
-  log "First run: copying rstudio-gpu.sif from NFS to $CACHED_SIF for future use"
-  mkdir -p "$APPTAINER_CACHE_DIR"
-  cp "${apptainer_image_dir}/${rstudio_container}" "$CACHED_SIF"
-  if [ -f "$CACHED_SIF" ]; then
-    log "Successfully cached container to $CACHED_SIF"
+  log "First run: caching rstudio-gpu.sif to local /tmp"
+  mkdir -p "$(dirname $APPTAINER_LOCAL_CACHE)"
+  cp "/shared/apptainerImages/${rstudio_container}" "$APPTAINER_LOCAL_CACHE"
+  if [ -f "$APPTAINER_LOCAL_CACHE" ]; then
+    log "Successfully cached container to $APPTAINER_LOCAL_CACHE"
+    container_image="$APPTAINER_LOCAL_CACHE"
   else
-    log "WARNING: Failed to cache to $CACHED_SIF, falling back to NFS"
-    container_image="${apptainer_image_dir}/${rstudio_container}"
+    log "WARNING: Failed to cache to $APPTAINER_LOCAL_CACHE, falling back to NFS"
+    container_image="/shared/apptainerImages/${rstudio_container}"
   fi
-  container_image="$CACHED_SIF"
 fi
 <% else %>
 container_image="${apptainer_image_dir}/${rstudio_container}"
