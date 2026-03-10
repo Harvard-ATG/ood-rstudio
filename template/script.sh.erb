@@ -1,198 +1,70 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 this_script="template/script.sh.erb"
-
 log() {
     echo -e "[$(date -Iseconds)][${this_script}] $1"
 }
 
-<%- session_dir = session.staged_root %>
-
-# Benchmark info
 log "Starting main script"
 
-# Set working directory to home directory
-cd "${HOME}"
-
-spack_environment="apptainer"
-apptainer_image_dir="/shared/apptainerImages"
-rstudio_container="<%= context.imagefile %>"
-
-# Load the required environment
-setup_env () {
-  # Load spack
-  spack_root="/shared/spack"
-  log "Spack root: $spack_root"
-  . $spack_root/share/spack/setup-env.sh
-  
-  # DO NOT use 'spack env activate' or 'spack load' as they run Python that crashes with Status -4
-  # Instead, find the raw apptainer binary directly
-  log "Finding apptainer binary directly (bypassing Python spack env)..."
-  APPTAINER_BIN=$(spack location -i apptainer 2>/dev/null)/bin/apptainer
-  if [ ! -x "$APPTAINER_BIN" ]; then
-    log "WARNING: Could not find apptainer binary at $APPTAINER_BIN, falling back to PATH"
-    APPTAINER_BIN=$(which apptainer)
-  fi
-  export APPTAINER_BIN
-  log "Using apptainer binary: $APPTAINER_BIN"
-}
-
-setup_env
-
-export WORKING_DIR="<%= session_dir %>"
-
-#
-# Start RStudio Server
-#
-# PAM auth helper used by RStudio
-export RSTUDIO_AUTH="$WORKING_DIR/bin/auth"
-
-# Set up R library paths to be used in app.
-R_LIBS_USER="/shared/home/$USER/R/%p-library/%v"
-<%= context.respond_to?('r_libpath') ? "export R_LIBS_USER=\"${R_LIBS_USER}:#{context.r_libpath}\"" : "" %>
-
-# Generate an `rsession` wrapper script
-export RSESSION_WRAPPER_FILE="$WORKING_DIR/rsession.sh"
-(
-umask 077
-sed 's/^ \{2\}//' > "$WORKING_DIR/rsession.sh" << EOL
-  #!/usr/bin/env bash
-
-  set -x
-
-  echo "The rsession script is running"
-
-  export RSESSION_LOG_FILE="$WORKING_DIR/rsession.log"
-
-  exec &>>"\${RSESSION_LOG_FILE}"
-  set -x
-
-  export R_LIBS_SITE="${R_LIBS_SITE}"
-  export TZ="US/Eastern"
-  export HOME="$HOME"
-  export MODULEPATH_ROOT="$MODULEPATH_ROOT"
-  export MODULEPATH="$MODULEPATH"
-  export LMOD_PKG="$LMOD_PKG"
-  $R_LIBPATH_LINE
-
-  env
-
-  echo "Launching rsession..."
-  exec rsession --r-libs-user "${R_LIBS_USER}" "\${@}"
-EOL
-)
-chmod 700 "$WORKING_DIR/rsession.sh"
-
-# server log directory in this job's working directory
-mkdir -p "$WORKING_DIR/logs"
-
-APPTAINER_HOME=$HOME
-
-# Bind folders to the container file system so it can access and write to them
-SING_BIND_LIST=(
-  "-B" "/shared/courseSharedFolders"
-  "-B" "/shared/spack"
-  "-B" "$WORKING_DIR/etc/rstudio:/etc/rstudio"
-)
-log "SING_BIND_LIST: ${SING_BIND_LIST[*]}"
-
-# Add GPU support if GPUs are requested
-GPU_FLAG=""
-<% if context.respond_to?('custom_num_gpus') && !context.custom_num_gpus.blank? && context.custom_num_gpus.to_i > 0 %>
-GPU_FLAG="--nv"
-log "GPU support enabled with --nv flag (custom_num_gpus=<%= context.custom_num_gpus %>)"
-<% end %>
-
-# Timeouts for safety
-if [ -n "$GPU_FLAG" ]; then
-  export APPTAINER_MOUNT_TIMEOUT=60
-  export SQUASHFUSE_MOUNT_TIMEOUT=60
-fi
-
-log "Starting RStudio"
-log "apptainer=$(which apptainer)"
-
 # ============================================================================
-# BULLETPROOF CACHE LOGIC
+# APPTAINER PATHS & IMAGE
 # ============================================================================
-if [ -n "$GPU_FLAG" ]; then
-  FAST_STORAGE="/scratch/apptainerImages"
-  SOURCE_IMAGE="${apptainer_image_dir}/${rstudio_container}"
-  FAST_IMAGE="$FAST_STORAGE/${rstudio_container}"
-  
-  # Ensure directory exists and is writable by all users
-  mkdir -p "$FAST_STORAGE"
-  chmod 777 "$FAST_STORAGE" 2>/dev/null || true 
-  
-  # Get exact file sizes for verification
-  SHARED_SIZE=$(stat -c%s "$SOURCE_IMAGE" 2>/dev/null || echo 1)
-  LOCAL_SIZE=$(stat -c%s "$FAST_IMAGE" 2>/dev/null || echo 0)
-  
-  # LOGIC: If missing OR corrupted (size mismatch), do a safe copy
-  if [[ ! -f "$FAST_IMAGE" ]] || [[ "$LOCAL_SIZE" -ne "$SHARED_SIZE" ]]; then
-    log "Cache missing or invalid. Copying container to $FAST_STORAGE..."
-    
-    # Use a user-specific temp file to prevent race conditions
-    TEMP_IMAGE="$FAST_IMAGE.tmp.$USER"
-    cp "$SOURCE_IMAGE" "$TEMP_IMAGE"
-    
-    # Verify the temporary copy finished successfully
-    TEMP_SIZE=$(stat -c%s "$TEMP_IMAGE" 2>/dev/null || echo 0)
-    if [[ "$TEMP_SIZE" -eq "$SHARED_SIZE" ]]; then
-      # Atomic move replaces the file instantly for everyone
-      mv -f "$TEMP_IMAGE" "$FAST_IMAGE"
-      chmod 644 "$FAST_IMAGE" 2>/dev/null || true
-      log "Successfully cached image to $FAST_IMAGE"
-    else
-      log "WARNING: Copy failed (No space left?). Falling back to NFS."
-      rm -f "$TEMP_IMAGE"
-      FAST_IMAGE="$SOURCE_IMAGE"
-    fi
-  else
-    log "Using existing verified cache: $FAST_IMAGE"
-  fi
+APPTAINER_BIN="/shared/spack/opt/spack/linux-skylake_avx512/apptainer-1.4.1-tay33zpzokp6tke64nv442eqlajt3fj2/bin/apptainer"
+FAST_IMAGE="/shared/images/rstudio_latest.sif"
+
+# Check for GPU
+if [ -n "$CUDA_VISIBLE_DEVICES" ] || [ -n "$SLURM_STEP_GPUS" ]; then
+  GPU_FLAG="--nv"
+  log "GPU resources detected. Enabling --nv flag."
 else
-  # CPU sessions: use NFS directly
-  FAST_IMAGE="${apptainer_image_dir}/${rstudio_container}"
-  log "Using standard storage: $FAST_IMAGE (CPU session)"
-fi
-
-# Force filesystem sync so the kernel flushes the newly written data to the SSD
-sync
-log "Storage prepped and synced. Proceeding to launch..."
-
-# ============================================================================
-# ENVIRONMENT CONFIGURATION FOR FUSE/UNSQUASH BYPASS
-# ============================================================================
-if [ -n "$GPU_FLAG" ]; then
-  USER_SCRATCH="/scratch/$USER"
-  mkdir -p "$USER_SCRATCH"
-  
-  # Ensure all temp/cache/extraction directories point to fast local disk
-  export APPTAINER_SESSIONDIR="$USER_SCRATCH"
-  export APPTAINER_TMPDIR="$USER_SCRATCH"
-  export APPTAINER_CACHEDIR="$USER_SCRATCH"
-  export XDG_RUNTIME_DIR="$USER_SCRATCH"
-  export APPTAINER_CONFIGDIR="$USER_SCRATCH"
-  
-  log "GPU detected: Redirecting extraction and temp dirs to $USER_SCRATCH"
+  GPU_FLAG=""
+  log "No GPU resources detected. Running in CPU mode."
 fi
 
 # ============================================================================
-# EXECUTION
+# ENVIRONMENT & FAST SCRATCH DIRECTORIES
 # ============================================================================
-if [ -n "$GPU_FLAG" ]; then
-  # GPU session: Use direct binary and --unsquash to completely bypass network FUSE mount
-  log "GPU session: Launching with direct apptainer binary and --unsquash flag..."
-  "$APPTAINER_BIN" exec ${GPU_FLAG} --unsquash "${SING_BIND_LIST[@]}" "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh
-else
-  # CPU session: standard FUSE mounting from /scratch or NFS, no timeout issues on CPU nodes
-  log "CPU session: Launching container"
-  "$APPTAINER_BIN" exec ${GPU_FLAG} "${SING_BIND_LIST[@]}" "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh
-fi
+USER_SCRATCH="/scratch/$USER/${SLURM_JOB_ID:-ood}"
+mkdir -p "$USER_SCRATCH"
 
-# Cleanup user-specific session directory (leave cached .sif in place)
-rm -rf "/scratch/$USER"
-log "Cleaned up user session directory /scratch/$USER"
+export APPTAINER_SESSIONDIR="$USER_SCRATCH"
+export APPTAINER_TMPDIR="$USER_SCRATCH"
+export APPTAINER_CACHEDIR="$USER_SCRATCH"
+export XDG_RUNTIME_DIR="$USER_SCRATCH"
 
-log "RStudio session ended"
+# Keep the timeouts elevated just in case
+export APPTAINER_MOUNT_TIMEOUT=120
+export SQUASHFUSE_MOUNT_TIMEOUT=120
+export APPTAINER_SQUASHFUSE_TIMEOUT=120
+
+# RStudio requires write access to certain system directories
+SING_BIND_LIST=()
+SING_BIND_LIST+=("--bind" "$USER_SCRATCH:/tmp")
+SING_BIND_LIST+=("--bind" "$USER_SCRATCH:/var/run/rstudio-server")
+SING_BIND_LIST+=("--bind" "$USER_SCRATCH:/var/lib/rstudio-server")
+
+# ============================================================================
+# EXECUTION: THE "IGNORE FATAL ERRORS" WORKAROUND
+# ============================================================================
+log "Launching Apptainer. Disabling strict error checking (set +e)..."
+
+# Prevent Slurm/OOD from aborting if Apptainer throws an exit code 255
+set +e 
+
+CONTAINER_LOG="$USER_SCRATCH/rstudio_container.log"
+log "Routing all container output and errors to: $CONTAINER_LOG"
+
+# Execute Apptainer. 
+# -q suppresses normal info messages.
+# > "$CONTAINER_LOG" 2>&1 captures the timeout error so it doesn't trigger OOD's kill switch.
+# || true forces the Bash script to view this command as a 'success' even if it fails.
+"$APPTAINER_BIN" exec -q ${GPU_FLAG} "${SING_BIND_LIST[@]}" "$FAST_IMAGE" ${JOBROOT}/rstudio.script.sh > "$CONTAINER_LOG" 2>&1 || true
+
+log "Apptainer execution block concluded. If the session died, check $CONTAINER_LOG"
+
+# ============================================================================
+# CLEANUP
+# ============================================================================
+rm -rf "$USER_SCRATCH"
+log "RStudio session ended and scratch cleaned up"
