@@ -116,6 +116,36 @@ GPU_FLAG=""
 GPU_FLAG="--nv"
 log "GPU support enabled with --nv flag (custom_num_gpus=<%= context.custom_num_gpus %>)"
 
+# Zero-Config GPU/CUDA Setup for Students
+# Strategy: Try host CUDA 12.8 first (if available), fall back to spack CUDA 12.8
+CUDA_INSTALL=""
+
+# Check if CUDA 12.8 exists on host (stage setup)
+if [ -d "/usr/local/cuda-12.8" ] && [ -f "/usr/local/cuda-12.8/bin/nvcc" ]; then
+  CUDA_INSTALL="/usr/local/cuda-12.8"
+  log "Found CUDA 12.8 on host (stage setup)"
+# Fall back to spack CUDA 12.8 (prod setup)
+else
+  CUDA_INSTALL=$(spack location -i cuda 2>/dev/null)
+  if [ -n "$CUDA_INSTALL" ] && [ -f "$CUDA_INSTALL/bin/nvcc" ]; then
+    log "Found CUDA 12.8 from Spack (prod setup)"
+  else
+    CUDA_INSTALL=""
+    log "WARNING: No CUDA found, torch may default to CPU"
+  fi
+fi
+
+if [ -n "$CUDA_INSTALL" ]; then
+  # Export CUDA paths so torch can detect GPU support
+  export CUDA_HOME="$CUDA_INSTALL"
+  export PATH="$CUDA_INSTALL/bin:$PATH"
+  export LD_LIBRARY_PATH="$CUDA_INSTALL/lib64:$LD_LIBRARY_PATH"
+  
+  # Bind CUDA into container so torch can find nvcc inside the container
+  SING_BIND_LIST+=("-B" "$CUDA_INSTALL:/usr/local/cuda")
+  log "CUDA will be available to container at /usr/local/cuda"
+fi
+
 # We have already put this image on /scratch, 
 # so we can use it from there to avoid copying it from NFS to 
 # local storage on each job run, which can cause FUSE timeouts. 

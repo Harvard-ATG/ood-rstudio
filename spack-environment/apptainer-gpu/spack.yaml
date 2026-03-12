@@ -1,6 +1,7 @@
 spack:
   specs:
   - apptainer+suid
+  - cuda@12.8
   view: true
   concretizer:
     unify: true
