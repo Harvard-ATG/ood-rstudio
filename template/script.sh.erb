@@ -102,11 +102,11 @@ CUDA_HOST="/usr/local/cuda-12.8"
 if [ -d "$CUDA_HOST" ]; then
   log "Found CUDA 12.8 on host. Setting up container environment..."
   
-  # 1. Bind the host CUDA 12.8 to the SAME path inside the container
-  SING_BIND_LIST+=("-B" "${CUDA_HOST}:${CUDA_HOST}")
+  # 1. Bind the host CUDA 12.8 to /usr/local/cuda inside container (replaces rocker's old CUDA)
+  SING_BIND_LIST+=("-B" "${CUDA_HOST}:/usr/local/cuda")
   
   # 2. Inject environment variables so R session sees them (Zero-Config)
-  export APPTAINERENV_CUDA_HOME="${CUDA_HOST}"
+  export APPTAINERENV_CUDA_HOME="/usr/local/cuda"
   
   # Define the internal paths for the toolkit and Nsight tools
   INT_BIN="${CUDA_HOST}/bin"
@@ -117,7 +117,7 @@ if [ -d "$CUDA_HOST" ]; then
   export APPTAINERENV_PATH="${INT_BIN}:${INT_NSYS}:${INT_NCU}:${PATH}"
   export APPTAINERENV_LD_LIBRARY_PATH="${CUDA_HOST}/lib64:${LD_LIBRARY_PATH}"
   
-  log "CUDA 12.8 injected into APPTAINERENV_PATH"
+  log "CUDA 12.8 injected into APPTAINERENV_PATH and bound to /usr/local/cuda"
 else
   log "WARNING: CUDA 12.8 not found at $CUDA_HOST, torch may default to CPU"
 fi
