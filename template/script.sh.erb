@@ -127,6 +127,14 @@ if [ -d "$CUDA_HOST" ] && [ -f "$CUDA_HOST/bin/nvcc" ]; then
   export PATH="$CUDA_HOST/bin:$PATH"
   export LD_LIBRARY_PATH="$CUDA_HOST/lib64:$LD_LIBRARY_PATH"
   
+  # Add NVIDIA tools (ncu, nsys) to PATH for profiling courses
+  if [ -d "$CUDA_HOST/nsight-systems-2024.6.2/bin" ]; then
+    export PATH="$CUDA_HOST/nsight-systems-2024.6.2/bin:$PATH"
+  fi
+  if [ -d "$CUDA_HOST/nsight-compute-2025.1.1/bin" ]; then
+    export PATH="$CUDA_HOST/nsight-compute-2025.1.1/bin:$PATH"
+  fi
+  
   # Bind CUDA into container so torch can find nvcc inside the container
   SING_BIND_LIST+=("-B" "$CUDA_HOST:/usr/local/cuda")
   log "CUDA 12.8 will be available to container at /usr/local/cuda"
