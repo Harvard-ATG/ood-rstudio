@@ -116,7 +116,6 @@ GPU_FLAG=""
 GPU_FLAG="--nv"
 log "GPU support enabled with --nv flag (custom_num_gpus=<%= context.custom_num_gpus %>)"
 
-# Zero-Config GPU/CUDA Setup for Students
 # Bind host CUDA 12.8 into container so torch can find nvcc
 CUDA_HOST="/usr/local/cuda-12.8"
 if [ -d "$CUDA_HOST" ] && [ -f "$CUDA_HOST/bin/nvcc" ]; then
