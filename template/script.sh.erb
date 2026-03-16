@@ -48,15 +48,8 @@ export WORKING_DIR="<%= session_dir %>"
 # PAM auth helper used by RStudio
 export RSTUDIO_AUTH="$WORKING_DIR/bin/auth"
 
-# Set up R library paths to be used in app. This is used when starting the
-# rstudio command, passed as an argument to `rsession` via `--r-libs-user`
-# First, ensure that there is a library path in the user's home directory
-# available, so users can install their own packages without additional setup
+# Set up R library paths
 R_LIBS_USER="/shared/home/$USER/R/%p-library/%v"
-
-# Then, if it's specified in the form for this app, set an additional library
-# path for the R Studio app to use. This is used to set up a shared library
-# install location, managed by course instructors.
 <%= context.respond_to?('r_libpath') ? "export R_LIBS_USER=\"${R_LIBS_USER}:#{context.r_libpath}\"" : "" %>
 
 # Generate an `rsession` wrapper script
@@ -65,19 +58,12 @@ export RSESSION_WRAPPER_FILE="$WORKING_DIR/rsession.sh"
 umask 077
 sed 's/^ \{2\}//' > "$WORKING_DIR/rsession.sh" << EOL
   #!/usr/bin/env bash
-
   set -x
-
   echo "The rsession script is running"
-
-  # Log all output from this script
   export RSESSION_LOG_FILE="$WORKING_DIR/rsession.log"
-
   exec &>>"\${RSESSION_LOG_FILE}"
   set -x
 
-  # rsession.sh doesn't share the same env as the outside script, so these
-  # need to be set explicitly
   export R_LIBS_SITE="${R_LIBS_SITE}"
   export TZ="US/Eastern"
   export HOME="$HOME"
@@ -85,95 +71,74 @@ sed 's/^ \{2\}//' > "$WORKING_DIR/rsession.sh" << EOL
   export MODULEPATH_ROOT="$MODULEPATH_ROOT"
   export MODULEPATH="$MODULEPATH"
   export LMOD_PKG="$LMOD_PKG"
-  $R_LIBPATH_LINE
-
+  
   env
 
-  # Launch the original command
   echo "Launching rsession..."
   exec rsession --r-libs-user "${R_LIBS_USER}" "\${@}"
 EOL
 )
 chmod 700 "$WORKING_DIR/rsession.sh"
 
-# server log directory in this job's working directory
+# server log directory
 mkdir -p "$WORKING_DIR/logs"
 
 APPTAINER_HOME=$HOME
 
-# Bind folders to the container file system so it can access and write to them
+# Bind folders to the container file system
 SING_BIND_LIST=(
   "-B" "/shared/courseSharedFolders"
   "-B" "/shared/spack"
   "-B" "$WORKING_DIR/etc/rstudio:/etc/rstudio"
 )
-SING_BINDS="${SING_BIND_LIST[@]}"
-log "SING_BINDS=${SING_BINDS}"
 
 # Add GPU support if GPUs are requested
 GPU_FLAG=""
 <% if context.respond_to?('custom_num_gpus') && !context.custom_num_gpus.blank? && context.custom_num_gpus.to_i > 0 %>
 GPU_FLAG="--nv"
-log "GPU support enabled with --nv flag (custom_num_gpus=<%= context.custom_num_gpus %>)"
+log "GPU support enabled with --nv flag"
 
-# Bind host CUDA 12.8 into container so torch can find nvcc
 CUDA_HOST="/usr/local/cuda-12.8"
-if [ -d "$CUDA_HOST" ] && [ -f "$CUDA_HOST/bin/nvcc" ]; then
-  log "Found CUDA 12.8 on host at $CUDA_HOST"
+if [ -d "$CUDA_HOST" ]; then
+  log "Found CUDA 12.8 on host. Setting up container environment..."
   
-  # Export CUDA paths so torch can detect GPU support
-  export CUDA_HOME="$CUDA_HOST"
-  export PATH="$CUDA_HOST/bin:$PATH"
-  export LD_LIBRARY_PATH="$CUDA_HOST/lib64:$LD_LIBRARY_PATH"
+  # 1. Bind the host CUDA 12.8 to the SAME path inside the container
+  SING_BIND_LIST+=("-B" "${CUDA_HOST}:${CUDA_HOST}")
   
-  # Add NVIDIA tools (ncu, nsys) to PATH for profiling courses
-  if [ -d "$CUDA_HOST/nsight-systems-2024.6.2/bin" ]; then
-    export PATH="$CUDA_HOST/nsight-systems-2024.6.2/bin:$PATH"
-  fi
-  if [ -d "$CUDA_HOST/nsight-compute-2025.1.1/bin" ]; then
-    export PATH="$CUDA_HOST/nsight-compute-2025.1.1/bin:$PATH"
-  fi
+  # 2. Inject environment variables so R session sees them (Zero-Config)
+  export APPTAINERENV_CUDA_HOME="${CUDA_HOST}"
   
-  # Bind CUDA into container so torch can find nvcc inside the container
-  SING_BIND_LIST+=("-B" "$CUDA_HOST:/usr/local/cuda")
-  log "CUDA 12.8 will be available to container at /usr/local/cuda"
+  # Define the internal paths for the toolkit and Nsight tools
+  INT_BIN="${CUDA_HOST}/bin"
+  INT_NSYS="${CUDA_HOST}/nsight-systems-2024.6.2/bin"
+  INT_NCU="${CUDA_HOST}/nsight-compute-2025.1.1" 
+  
+  # Merge with existing path to ensure 'which nvcc' works immediately
+  export APPTAINERENV_PATH="${INT_BIN}:${INT_NSYS}:${INT_NCU}:${PATH}"
+  export APPTAINERENV_LD_LIBRARY_PATH="${CUDA_HOST}/lib64:${LD_LIBRARY_PATH}"
+  
+  log "CUDA 12.8 injected into APPTAINERENV_PATH"
 else
   log "WARNING: CUDA 12.8 not found at $CUDA_HOST, torch may default to CPU"
 fi
 
-# For GPU jobs, cache container on local storage to avoid NFS FUSE timeout
-# Strategy: Check /opt/apptainerImages (shared across nodes) first, 
-# then fall back to /tmp (local to node) if /opt not writable
-APPTAINER_SHARED_CACHE="/opt/apptainerImages/rstudio-gpu.sif"
+# Cache container on local storage for performance
 APPTAINER_LOCAL_CACHE="/tmp/apptainer-cache/rstudio-gpu.sif"
-
-if [ -f "$APPTAINER_SHARED_CACHE" ]; then
-  log "Using cached rstudio-gpu.sif from shared storage: $APPTAINER_SHARED_CACHE"
-  container_image="$APPTAINER_SHARED_CACHE"
-elif [ -f "$APPTAINER_LOCAL_CACHE" ]; then
-  log "Using cached rstudio-gpu.sif from local /tmp: $APPTAINER_LOCAL_CACHE"
-  container_image="$APPTAINER_LOCAL_CACHE"
-else
-  log "First run: caching rstudio-gpu.sif to local /tmp"
+if [ ! -f "$APPTAINER_LOCAL_CACHE" ]; then
   mkdir -p "$(dirname $APPTAINER_LOCAL_CACHE)"
   cp "/shared/apptainerImages/${rstudio_container}" "$APPTAINER_LOCAL_CACHE"
-  if [ -f "$APPTAINER_LOCAL_CACHE" ]; then
-    log "Successfully cached container to $APPTAINER_LOCAL_CACHE"
-    container_image="$APPTAINER_LOCAL_CACHE"
-  else
-    log "WARNING: Failed to cache to $APPTAINER_LOCAL_CACHE, falling back to NFS"
-    container_image="/shared/apptainerImages/${rstudio_container}"
-  fi
 fi
+container_image="$APPTAINER_LOCAL_CACHE"
+
 <% else %>
 container_image="${apptainer_image_dir}/${rstudio_container}"
 <% end %>
 
+SING_BINDS="${SING_BIND_LIST[@]}"
+log "SING_BINDS=${SING_BINDS}"
+
 # Launch the RStudio Server
 log "Starting RStudio"
-
-log "apptainer=$(which apptainer)"
-
 apptainer exec $GPU_FLAG $SING_BINDS "$container_image" ${JOBROOT}/rstudio.script.sh
 
 log "Apptainer logs:\n$(apptainer instance list --logs)"
