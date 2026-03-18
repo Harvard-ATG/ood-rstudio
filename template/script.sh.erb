@@ -108,13 +108,9 @@ if [ -d "$CUDA_HOST" ]; then
   # 2. Inject environment variables so R session sees them (Zero-Config)
   export APPTAINERENV_CUDA_HOME="/usr/local/cuda"
   
-  # Define the internal paths for the toolkit and Nsight tools
-  INT_BIN="${CUDA_HOST}/bin"
-  INT_NSYS="${CUDA_HOST}/nsight-systems-2024.6.2/bin"
-  INT_NCU="${CUDA_HOST}/nsight-compute-2025.1.1" 
-  
-  # Merge with existing path to ensure 'which nvcc' works immediately
-  export APPTAINERENV_PATH="${INT_BIN}:${INT_NSYS}:${INT_NCU}:${PATH}"
+  # Add CUDA utilities to PATH via symlinked /usr/local/cuda (avoids version-specific brittleness)
+  # /usr/local/cuda/bin contains wrappers (ncu, nsys) that invoke the correct version-specific binary
+  export APPTAINERENV_PATH="/usr/local/cuda/bin:${PATH}"
   export APPTAINERENV_LD_LIBRARY_PATH="${CUDA_HOST}/lib64:${LD_LIBRARY_PATH}"
   
   log "CUDA 12.8 injected into APPTAINERENV_PATH and bound to /usr/local/cuda"
@@ -123,7 +119,7 @@ else
 fi
 
 # Cache container on local storage for performance
-APPTAINER_LOCAL_CACHE="/tmp/apptainer-cache/rstudio-gpu.sif"
+APPTAINER_LOCAL_CACHE="/opt/apptainerImages/${rstudio_container}"
 if [ ! -f "$APPTAINER_LOCAL_CACHE" ]; then
   mkdir -p "$(dirname $APPTAINER_LOCAL_CACHE)"
   cp "/shared/apptainerImages/${rstudio_container}" "$APPTAINER_LOCAL_CACHE"
@@ -136,6 +132,7 @@ container_image="${apptainer_image_dir}/${rstudio_container}"
 
 SING_BINDS="${SING_BIND_LIST[@]}"
 log "SING_BINDS=${SING_BINDS}"
+log "Container image: $container_image"
 
 # Launch the RStudio Server
 log "Starting RStudio"
