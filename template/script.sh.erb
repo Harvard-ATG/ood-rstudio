@@ -119,7 +119,15 @@ else
 fi
 
 # Cache container on local storage for performance
-APPTAINER_LOCAL_CACHE="/opt/apptainerImages/${rstudio_container}"
+# APPTAINER_LOCAL_CACHE="/opt/apptainerImages/${rstudio_container}"
+# if [ ! -f "$APPTAINER_LOCAL_CACHE" ]; then
+#   mkdir -p "$(dirname $APPTAINER_LOCAL_CACHE)"
+#   cp "/shared/apptainerImages/${rstudio_container}" "$APPTAINER_LOCAL_CACHE"
+# fi
+# container_image="$APPTAINER_LOCAL_CACHE"
+
+# Cache container on local storage for performance
+APPTAINER_LOCAL_CACHE="/tmp/apptainerImages/${rstudio_container}"
 if [ ! -f "$APPTAINER_LOCAL_CACHE" ]; then
   mkdir -p "$(dirname $APPTAINER_LOCAL_CACHE)"
   cp "/shared/apptainerImages/${rstudio_container}" "$APPTAINER_LOCAL_CACHE"
