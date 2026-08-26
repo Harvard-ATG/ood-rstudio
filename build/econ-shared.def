@@ -1,0 +1,82 @@
+# econ-shared.def  →  /shared/apptainerImages/econ-shared.sif
+#
+# Shared econometrics RStudio container for FAS courses taught by Gregory Bruich (gab853).
+# Durable, purpose-based name (NOT a course number) so it persists across terms
+# (Fall 2026, Spring 2027, ...). Carries a strong, broadly-useful econometrics R stack.
+# Base: rocker/verse:4.5.1 (R + RStudio Server + Tidyverse + TeX Live).
+#
+# Courses using this image (each points its local/<course>.yml.erb at econ-shared.sif):
+#   - ECON 2110 : Econometrics I  — Canvas 171352 (Fall 2026; xlist HKS API 114 / HBSDOC 4170)
+#   - ECON 1123                   — Canvas 159573 (Spring 2026)
+#   - ECON 50                     — Canvas 159572 (Spring 2026)
+#
+# Lineage: rstudio-econ2110.def (Fall 2025) -> econ1123 (disable invalid lib/oglmx)
+#          -> v20260205 (+tinytex) -> econ-shared (this file). See ADR 0002 in the
+#          course-setup working docs and ood-misc-runbooks/courses/econ2110.md.
+Bootstrap: docker
+From: rocker/verse:4.5.1
+
+%post -c /bin/bash
+
+R_PACKAGES=(
+    "AER"
+    "MASS"
+    "binsreg"
+    "boot"
+    "broom"
+    "car"
+    "data.table"
+    "dfadjust"
+    "dplyr"
+    "estimatr"
+    "fixest"
+    "gamlr"
+    "ggplot2"
+    "haven"
+    "ivDiag"
+    "jsonlite"
+    "kableExtra"
+    "lfe"
+    # "lib" # Does not appear to be a package
+    "lmtest"
+    "lpdensity"
+    "lubridate"
+    "maptpx"
+    "margins"
+    "msm"
+    "np"
+    "nprobust"
+    # "oglmx" # Removed from CRAN repository
+    "randomForest"
+    "remotes"
+    "rdrobust"
+    "rpart"
+    "rpart.plot"
+    "rugarch"
+    "ranger"
+    "sampleSelection"
+    "sandwich"
+    "stargazer"
+    "statar"
+    "textir"
+    "tidyverse"
+    "tinytex"
+    "tm"
+    "zoo"
+)
+
+R_GH_PACKAGES=(
+    "OpportunityInsights/oiplot"
+    "grantmcdermott/lfe2fixest"
+    "manutzn/fredo"
+)
+
+for package in "${R_PACKAGES[@]}"
+do
+Rscript -e "install.packages(\"${package}\", repos=\"https://archive.linux.duke.edu/cran/\")"
+done
+
+for package in "${R_GH_PACKAGES[@]}"
+do
+Rscript -e "devtools::install_github(\"${package}\")"
+done
