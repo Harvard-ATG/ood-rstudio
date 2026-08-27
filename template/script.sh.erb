@@ -140,30 +140,110 @@ SING_BIND_LIST=(
 # ---------------------------------------------------------------------------
 <% if context.respond_to?('slurm_enabled') && context.slurm_enabled.to_s == "true" %>
 log "Slurm injection enabled for this sub-app"
+
+# --- 1. Build an /etc/passwd and /etc/group the Slurm client can use ----------
+#
+# WHY AT ALL: /etc/passwd and /etc/group are identifier translation maps - they
+# turn account and group names into the uid/gid numbers the kernel enforces on,
+# and back again. A container image carries its own copies, baked in when the
+# image was built on Docker Hub: root, daemon, rstudio and friends. It has never
+# heard of this cluster's "slurm" account, and never heard of any LDAP user.
+# Two things break as a result:
+#   - slurm.conf contains the literal text SlurmUser=slurm. The client resolves
+#     that name while PARSING ITS CONFIG, before doing anything else. It cannot,
+#     so it aborts with "Invalid user for SlurmUser slurm" followed by "Unable
+#     to process configuration file". This is name resolution, not permissions.
+#   - the session's own user has no entry either, so the uid has no name, home
+#     or shell - and RStudio then fails in ways that point nowhere near here.
+#
+# HOW: start from the image's own file (so container-internal accounts survive),
+# append the few records the host can resolve, dedupe, and bind the result over
+# /etc/passwd and /etc/group inside the container.
+#
+# WHAT THIS IS NOT: a grant of any kind. A map is not a key. Access is still
+# decided by the kernel on the numeric ids the process already carries, and
+# trust between Slurm components comes from munge (step 2), not from this file.
 _IMG="${apptainer_image_dir}/${rstudio_container}"
+
+# run the container purely to read its own two files back out of the image
 apptainer exec "$_IMG" cat /etc/passwd > "$WORKING_DIR/passwd" 2>/dev/null
 apptainer exec "$_IMG" cat /etc/group  > "$WORKING_DIR/group"  2>/dev/null
+
+# ask the HOST to resolve the records the image lacks. getent consults whatever
+# the host knows - local files for service accounts, LDAP via sssd for people -
+# so the numbers match the host by construction rather than by hand.
+#   slurm     : because slurm.conf names it. This is the fatal one.
+#   munge     : so tools printing the socket's owner show a name, not 412
+#   $(id -un) : the person running this session. Required because binding a file
+#               over /etc/passwd REPLACES the entry apptainer injects for the
+#               caller - omit it and the session has a uid with no name.
 getent passwd slurm munge "$(id -un)" >> "$WORKING_DIR/passwd"
 getent group  slurm munge              >> "$WORKING_DIR/group"
+
+# ...and this user's own groups, so group NAMES resolve inside the container:
+# ls -l in the course folder then prints canvas170320-staff, not 1168564.
+# NOTE: this is not what grants access to that folder. The numeric gid list is
+# already in the process credentials and the container inherits it regardless.
 for _g in $(id -Gn); do getent group "$_g" >> "$WORKING_DIR/group"; done
-# apptainer already injects the calling user into the container passwd, so drop duplicates
+
+# apptainer already injected the calling user into the container's passwd, so
+# after the append that record appears twice. Harmless - first match wins - but
+# confusing to read later, so keep the first occurrence of each line.
 awk '!seen[$0]++' "$WORKING_DIR/passwd" > "$WORKING_DIR/passwd.tmp" && mv "$WORKING_DIR/passwd.tmp" "$WORKING_DIR/passwd"
 awk '!seen[$0]++' "$WORKING_DIR/group"  > "$WORKING_DIR/group.tmp"  && mv "$WORKING_DIR/group.tmp"  "$WORKING_DIR/group"
+
+# --- 2. Bind in the pieces the container is missing ---------------------------
+#
+# Every one of these already exists on the compute node this session is running
+# on. The container simply cannot see them, and a bind is what puts a host path
+# inside its view. Nothing is installed, and no image is rebuilt.
+
+# libmunge is resolved at run time, never hardcoded: the patch level differs
+# between machines (portal 2.0.0, compute nodes 2.0.1), so a fixed path works in
+# one place and breaks in the other.
 MUNGELIB=$(readlink -f /usr/lib64/libmunge.so.2)
+
+# the client binaries (sbatch/squeue/sacct) and their plugin directory. Bound at
+# the SAME path deliberately: the client dlopens plugins from /opt/slurm/lib/slurm,
+# so a relocated bind would load nothing. /opt/slurm is NFS-exported from the
+# head node, so it is the same version at the same path on every compute node.
 SING_BIND_LIST+=("-B" "/opt/slurm")
+
+# the munge socket. Not data - an IPC channel to the node's own munged, which
+# seals a credential carrying the caller's REAL uid; slurmctld verifies that
+# seal with the shared key. This is the only piece here carrying any authority,
+# and the container cannot mint one itself.
 SING_BIND_LIST+=("-B" "/run/munge")
+
+# the library the Slurm auth plugin dlopens to use that socket. Bound to a side
+# path rather than over /usr/lib64, which would shadow the container's own
+# libraries and break far more than it fixed.
 SING_BIND_LIST+=("-B" "${MUNGELIB}:/opt/hostlib/libmunge.so.2")
+
+# the two files built in step 1, shown in place of the image's copies
 SING_BIND_LIST+=("-B" "$WORKING_DIR/passwd:/etc/passwd")
 SING_BIND_LIST+=("-B" "$WORKING_DIR/group:/etc/group")
+
+# --- 3. Make the bound pieces findable ----------------------------------------
+#
+# Binding makes files EXIST inside the container; these make them DISCOVERABLE.
+# Both halves are needed - a bind with nothing on PATH is indistinguishable from
+# "command not found".
 export APPTAINERENV_APPEND_PATH="/opt/slurm/bin"
 export APPTAINERENV_LD_LIBRARY_PATH="/opt/slurm/lib:/opt/hostlib:${LD_LIBRARY_PATH}"
 export APPTAINERENV_SLURM_CONF="/opt/slurm/etc/slurm.conf"
-# RStudio rebuilds the session PATH, so APPTAINERENV_APPEND_PATH above does not
-# survive into a terminal. A profile.d drop-in does, because interactive shells
-# source /etc/profile. (The matching export for R itself is in the rsession.sh
-# heredoc further up this file.)
+
+# ...but APPTAINERENV_APPEND_PATH only reaches the process apptainer starts.
+# RStudio REBUILDS the environment for each session, so it never reaches a
+# user's Terminal pane or R console. The tell, when this was diagnosed: even
+# /usr/lib/rstudio-server/bin was missing from $PATH, though rstudio.script.sh
+# prepends it explicitly. So PATH is set again in the two places RStudio does
+# not rebuild: here via /etc/profile.d for interactive shells, and in the
+# rsession.sh heredoc earlier in this file for R itself, so that
+# system("sbatch ...") works from the console as well as the terminal.
 printf '%s\n' 'export PATH="/opt/slurm/bin:$PATH"' > "$WORKING_DIR/zz-slurm.sh"
 SING_BIND_LIST+=("-B" "$WORKING_DIR/zz-slurm.sh:/etc/profile.d/zz-slurm.sh")
+
 log "Slurm client bound: munge=$MUNGELIB"
 <% end %>
 
