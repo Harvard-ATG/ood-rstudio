@@ -1,0 +1,69 @@
+<%-
+# Specify admin groups by the full name of the group in the production HKey environment.
+adminGroups = [
+  "ondemand-admins-1025174" # HUIT OOD admin group
+]
+# Canvas course ID: canvas.harvard.edu/courses/170320
+enabledGroups = [
+  "170320" # STAT 139 - Introduction to Linear Models (Fall 2026)
+]
+
+def arrays_have_common_element(array1, array2)
+  !(array1 & array2).empty?
+end
+
+userGroups = OodSupport::User.new.groups.sort_by(&:id).map(&:name)
+if arrays_have_common_element(userGroups, adminGroups)
+  cluster="*"
+else
+  userCanvasGroups = userGroups.flat_map{ |str| str.scan(/^canvas(\d+)-\d+/) }.flatten
+  if arrays_have_common_element(userCanvasGroups, enabledGroups)
+    cluster="*"
+  else
+    cluster="disable_this_app"
+  end
+end
+-%>
+---
+cluster: "<%= cluster %>"
+title: "RStudio - STAT 139"
+description: |
+  RStudio for STAT 139 (Introduction to Linear Models), Canvas 170320.
+
+  R comes from the container image (rocker/verse 4.5.1). Course packages are
+  managed by the teaching staff in the course shared folder and are on
+  .libPaths() automatically.
+
+  Slurm commands (sbatch, squeue, sacct) are available in this session.
+  Batch jobs should run R through the same image, e.g.
+  apptainer exec /shared/apptainerImages/rstudio-base.sif Rscript hw.R
+
+attributes:
+  imagefile: rstudio-base.sif
+
+  # Opt in to the Slurm client injection in template/script.sh.erb, which lets
+  # sbatch/squeue/sacct work from inside this app's container. Two requirements,
+  # both easy to get wrong:
+  #   - the value must be the string "true"
+  #   - slurm_enabled MUST also appear under form: below. OOD only passes
+  #     form:-listed attributes into the template context, so leaving it out
+  #     makes the injection silently do nothing. A hard-coded value listed under
+  #     form: is still hidden from the user in the dashboard.
+  slurm_enabled: "true"
+
+  # Course-managed R package library (created by the teaching staff)
+  r_libpath: "/shared/courseSharedFolders/170320outer/170320/R/x86_64-pc-linux-gnu-library/4.5"
+
+  custom_num_cores:
+    widget: "number_field"
+    label: "Number of CPUs"
+    value: 1
+    min: 1
+    max: 4
+    step: 1
+form:
+  - custom_num_cores
+  - bc_num_hours
+  - imagefile
+  - r_libpath
+  - slurm_enabled

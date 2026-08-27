@@ -2,6 +2,12 @@
 
 set -x
 
+# NOTE: rserver rebuilds the environment for each R session, so PATH set here
+# does NOT reach the user's R console or Terminal pane - only rserver itself.
+# Anything a session must see on PATH has to be set in the generated rsession.sh
+# wrapper (for R) or in an /etc/profile.d drop-in (for terminal shells); both are
+# done in template/script.sh.erb. This is why the Slurm client, when a sub-app
+# enables it, is not put on PATH from this file.
 export PATH=/usr/lib/rstudio-server/bin:$PATH
 
 RSERVER_ARGLIST=(
