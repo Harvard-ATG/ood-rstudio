@@ -28,15 +28,38 @@ end
 cluster: "<%= cluster %>"
 title: "RStudio - STAT 139"
 description: |
-  RStudio for STAT 139 (Introduction to Linear Models), Canvas 170320.
+  RStudio for **STAT 139** (Introduction to Linear Models), Canvas 170320.
 
-  R comes from the container image (rocker/verse 4.5.1). Course packages are
-  managed by the teaching staff in the course shared folder and are on
-  .libPaths() automatically.
+  R comes from the course image (rocker/verse 4.5.1). Packages installed by the
+  teaching staff are already on `.libPaths()` — there is nothing to install.
 
-  Slurm commands (sbatch, squeue, sacct) are available in this session.
-  Batch jobs should run R through the same image, e.g.
-  apptainer exec /shared/apptainerImages/rstudio-base.sif Rscript hw.R
+  **Slurm commands work in this session** — `sbatch`, `squeue` and `sacct` in the
+  Terminal pane, and from the R console via `system()`.
+
+  **To run an R script as a batch job**, use the wrapper in the course folder. It
+  runs your script through this same image, so the R version and the course
+  packages are identical to what you see here:
+
+  ```bash
+  cp /shared/courseSharedFolders/170320outer/170320/job.slurm .
+  sbatch job.slurm my_script.R
+  squeue -u $USER          # your session is the sys/dashboard row; your job is the other
+  ```
+
+  The wrapper is three steps, if you would rather run them yourself:
+
+  ```bash
+  . /shared/spack/share/spack/setup-env.sh
+  spack env activate apptainer
+  apptainer exec -B /shared/courseSharedFolders \
+    --env R_LIBS_USER=/shared/courseSharedFolders/170320outer/170320/R/x86_64-pc-linux-gnu-library/4.5 \
+    /shared/apptainerImages/rstudio-base.sif Rscript my_script.R
+  ```
+
+  `R_LIBS_USER` is not optional. The course library reaches this session as an
+  `rsession` command-line flag rather than an environment variable, so there is
+  nothing for `sbatch --export=ALL` to carry — a job that omits it runs with only
+  the image's own packages, wherever it was submitted from.
 
 attributes:
   imagefile: rstudio-base.sif
