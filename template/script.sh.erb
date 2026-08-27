@@ -245,6 +245,36 @@ printf '%s\n' 'export PATH="/opt/slurm/bin:$PATH"' > "$WORKING_DIR/zz-slurm.sh"
 SING_BIND_LIST+=("-B" "$WORKING_DIR/zz-slurm.sh:/etc/profile.d/zz-slurm.sh")
 
 log "Slurm client bound: munge=$MUNGELIB"
+
+# --- 4. Leave the user a batch wrapper they can actually use ------------------
+#
+# Being able to type sbatch is not the same as knowing what to type. A job has
+# to activate spack, run the right image, and point R at the course library -
+# three things that are easy to get subtly wrong, and whose values live in this
+# sub-app's form rather than anywhere a student can see.
+#
+# So generate the wrapper here, where those values are known, rather than asking
+# anyone to keep a hand-written copy in step with the form. The template ships
+# in this repo (template/rscript-job.slurm.tmpl) and is staged into $JOBROOT
+# with the rest of template/; the substitutions come from the form and the
+# session. Written only when absent, so a user's edits are never clobbered.
+<% if context.respond_to?('course_code') && !context.course_code.blank? %>
+_WRAPPER="$HOME/<%= context.course_code %>-job.slurm"
+if [ ! -e "$_WRAPPER" ] && [ -f "${JOBROOT}/rscript-job.slurm.tmpl" ]; then
+  # NB: the image path here is the shared one, not the node-local /tmp cache the
+  # GPU branch may use for this session - the job runs on a different node.
+  sed -e "s|@COURSE@|<%= context.course_code %>|g" \
+      -e "s|@WRAPPER@|$(basename "$_WRAPPER")|g" \
+      -e "s|@USER@|$(id -un)|g" \
+      -e "s|@IMAGE@|${apptainer_image_dir}/${rstudio_container}|g" \
+      -e "s|@RLIBS@|<%= context.respond_to?('r_libpath') ? context.r_libpath : '' %>|g" \
+      "${JOBROOT}/rscript-job.slurm.tmpl" > "$_WRAPPER"
+  chmod +x "$_WRAPPER"
+  log "wrote batch wrapper: $_WRAPPER"
+else
+  log "batch wrapper already present or template missing: $_WRAPPER"
+fi
+<% end %>
 <% end %>
 
 # Add GPU support if GPUs are requested

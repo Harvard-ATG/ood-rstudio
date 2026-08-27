@@ -1,0 +1,39 @@
+#!/bin/bash
+#SBATCH --job-name=@COURSE@
+#SBATCH --partition=general
+#SBATCH --cpus-per-task=1
+#SBATCH --time=00:15:00
+#SBATCH --output=@COURSE@-%j.out
+#
+# Run an R script on the cluster using the SAME container image and the SAME
+# package library as your RStudio session, so results match what you see there.
+#
+#     sbatch @WRAPPER@ my_script.R
+#
+# Check on it with:   squeue -u $USER        (your RStudio session is the
+#                                             sys/dashboard row; this job is the
+#                                             one named @COURSE@)
+# Read the output:    cat @COURSE@-<jobid>.out
+#
+# This file was generated for @USER@ when the app started, using that app's own
+# image and library paths - so it cannot drift from them. Edit it freely: it is
+# never overwritten. To get a fresh copy, delete it and launch the app again.
+#
+# Change --cpus-per-task and --time above to ask for more; everything below is
+# what makes the job use the course environment.
+
+IMAGE=@IMAGE@
+COURSE_LIB=@RLIBS@
+
+# Spack is only here to provide the `apptainer` command.
+. /shared/spack/share/spack/setup-env.sh
+spack env activate apptainer
+
+echo "Running $1 on $(hostname)"
+
+# -B makes the course folder visible inside the container; R_LIBS_USER tells R
+# where the course packages are. Without the second one the job would run with
+# only the image's own packages.
+apptainer exec -B /shared/courseSharedFolders \
+  --env R_LIBS_USER="$COURSE_LIB" \
+  "$IMAGE" Rscript "$@"

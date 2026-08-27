@@ -36,15 +36,18 @@ description: |
   **Slurm commands work in this session** — `sbatch`, `squeue` and `sacct` in the
   Terminal pane, and from the R console via `system()`.
 
-  **To run an R script as a batch job**, use the wrapper in the course folder. It
-  runs your script through this same image, so the R version and the course
-  packages are identical to what you see here:
+  **To run an R script as a batch job**, use `~/stat139-job.slurm`. It was written
+  to your home directory the first time you launched this app, already pointing at
+  this image and these packages, so a job produces the same results you see here:
 
   ```bash
-  cp /shared/courseSharedFolders/170320outer/170320/job.slurm .
-  sbatch job.slurm my_script.R
+  sbatch ~/stat139-job.slurm my_script.R
   squeue -u $USER          # your session is the sys/dashboard row; your job is the other
+  cat stat139-<jobid>.out
   ```
+
+  Edit it if you need more CPUs or time — it is never overwritten. Delete it and
+  relaunch the app for a fresh copy.
 
   The wrapper is three steps, if you would rather run them yourself:
 
@@ -63,6 +66,11 @@ description: |
 
 attributes:
   imagefile: rstudio-base.sif
+
+  # Short course slug. Names the generated batch wrapper (~/stat139-job.slurm)
+  # and the job it submits, so a student in two Slurm-enabled courses gets one
+  # wrapper per course rather than a collision.
+  course_code: "stat139"
 
   # Opt in to the Slurm client injection in template/script.sh.erb, which lets
   # sbatch/squeue/sacct work from inside this app's container. Two requirements,
@@ -90,3 +98,4 @@ form:
   - imagefile
   - r_libpath
   - slurm_enabled
+  - course_code
