@@ -1,9 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=@COURSE@
+# generated-for: @APP@
+#SBATCH --job-name=@APP@
 #SBATCH --partition=general
 #SBATCH --cpus-per-task=1
 #SBATCH --time=00:15:00
-#SBATCH --output=@COURSE@-%j.out
+#SBATCH --output=@APP@-%j.out
 #
 # Run an R script on the cluster using the SAME container image and the SAME
 # package library as your RStudio session, so results match what you see there.
@@ -12,8 +13,8 @@
 #
 # Check on it with:   squeue -u $USER        (your RStudio session is the
 #                                             sys/dashboard row; this job is the
-#                                             one named @COURSE@)
-# Read the output:    cat @COURSE@-<jobid>.out
+#                                             one named @APP@)
+# Read the output:    cat @APP@-<jobid>.out
 #
 # This file was generated for @USER@ when the app started, using that app's own
 # image and library paths - so it cannot drift from them. Edit it freely: it is
