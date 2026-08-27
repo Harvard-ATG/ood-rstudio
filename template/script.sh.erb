@@ -255,7 +255,7 @@ log "Slurm client bound: munge=$MUNGELIB"
 # here, where those values are known, instead of asking anyone to keep a
 # hand-written copy in step with the form.
 #
-# The template ships in this repo (template/run-r-job.sh.tmpl) and is
+# The template ships in this repo (template/run-r.sh.tmpl) and is
 # staged into $JOBROOT with the rest of template/.
 #
 # The course name needs no configuration: OOD names this session's Slurm job
@@ -265,19 +265,19 @@ log "Slurm client bound: munge=$MUNGELIB"
 _SUBAPP="${SLURM_JOB_NAME##*/}"
 [ -z "$_SUBAPP" ] && _SUBAPP="course"
 
-# Students get ~/run-r-job.sh - the same instruction in every course. If a home
+# Students get ~/run-r.sh - the same instruction in every course. If a home
 # already holds one from a DIFFERENT Slurm-enabled sub-app, fall back to a
-# distinct name (run-r-job-<sub-app>.sh) rather than shadowing it, so two
+# distinct name (run-r-<sub-app>.sh) rather than shadowing it, so two
 # courses can coexist without
 # either quietly handing out the other's image.
-_WRAPPER="$HOME/run-r-job.sh"
+_WRAPPER="$HOME/run-r.sh"
 if [ -e "$_WRAPPER" ] && ! grep -q "^# generated-for: ${_SUBAPP}$" "$_WRAPPER" 2>/dev/null; then
-  _WRAPPER="$HOME/run-r-job-${_SUBAPP}.sh"
+  _WRAPPER="$HOME/run-r-${_SUBAPP}.sh"
 fi
 
 # Written only when absent, so a user's edits are never clobbered. Deleting it
 # and relaunching the app produces a fresh one.
-if [ ! -e "$_WRAPPER" ] && [ -f "${JOBROOT}/run-r-job.sh.tmpl" ]; then
+if [ ! -e "$_WRAPPER" ] && [ -f "${JOBROOT}/run-r.sh.tmpl" ]; then
   # NB: the shared image path, not the node-local /tmp cache the GPU branch may
   # use for this session - the job lands on a different node.
   sed -e "s|@APP@|${_SUBAPP}|g" \
@@ -285,7 +285,7 @@ if [ ! -e "$_WRAPPER" ] && [ -f "${JOBROOT}/run-r-job.sh.tmpl" ]; then
       -e "s|@USER@|$(id -un)|g" \
       -e "s|@IMAGE@|${apptainer_image_dir}/${rstudio_container}|g" \
       -e "s|@RLIBS@|<%= context.respond_to?('r_libpath') ? context.r_libpath : '' %>|g" \
-      "${JOBROOT}/run-r-job.sh.tmpl" > "$_WRAPPER"
+      "${JOBROOT}/run-r.sh.tmpl" > "$_WRAPPER"
   chmod +x "$_WRAPPER"
   log "wrote batch wrapper: $_WRAPPER"
 else

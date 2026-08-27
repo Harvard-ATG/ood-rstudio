@@ -36,12 +36,12 @@ description: |
   **Slurm commands work in this session** — `sbatch`, `squeue` and `sacct` in the
   Terminal pane, and from the R console via `system()`.
 
-  **To run an R script as a batch job**, use `~/run-r-job.sh`. It was written to your
+  **To run an R script as a batch job**, use `~/run-r.sh`. It was written to your
   home directory the first time you launched this app, already pointing at this
   image and these packages, so a job produces the same results you see here:
 
   ```bash
-  sbatch ~/run-r-job.sh my_script.R
+  sbatch ~/run-r.sh my_script.R
   squeue -u $USER          # your session is the sys/dashboard row; your job is the other
   cat stat139-<jobid>.out
   ```
