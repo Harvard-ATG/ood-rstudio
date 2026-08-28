@@ -189,39 +189,51 @@ for _g in $(id -Gn); do getent group "$_g" >> "$WORKING_DIR/group"; done
 # ...and every member of this course, so squeue and sacct show netids instead of
 # bare uid numbers. Binding a file over /etc/passwd means ONLY the records in
 # that file resolve: without this the session owner has a name and every other
-# person on the cluster prints as a number, which leaves faculty, staff and the
-# dev team unable to see whose job is whose.
+# person prints as a number, leaving faculty, staff and the dev team unable to
+# see whose job is whose.
 #
-# The course group is read from the OUTER course folder's own group ownership -
-# the enrolment group - so there is nothing to configure and nothing to guess:
+# WHY THE LIST IS BUILT IN ERB AND NOT HERE: this script runs on the compute
+# node, and compute nodes cannot enumerate group membership - SSSD there returns
+# a group with an empty or near-empty member list (measured: 1 name, against 179
+# on the portal). What compute nodes CAN do is resolve a name that is handed to
+# them, which is how the session owner already gets a passwd entry above.
+#
+# ERB is evaluated on the PORTAL, where the directory answers in full. So the
+# roster is looked up there and pasted in as a plain list of names; the passwd
+# lookups still happen here, on the node. Each machine does only what it can.
+#
+# The group is taken from the OUTER course folder's own group ownership - the
+# enrolment group - so nothing is configured and nothing is guessed:
 #   /shared/courseSharedFolders/170320outer  ->  canvas170320-1168563
-# and the path itself comes from r_libpath, which the form already supplies.
+# and the path comes from r_libpath, which the form already supplies.
 #
-# getent accepts many keys in one call, so a roster of a couple of hundred costs
-# one process rather than a couple of hundred. Note the lookups are per-name on
-# purpose: SSSD enumeration is off on these nodes, so `getent passwd` with no
-# arguments returns only local accounts and cannot be used here.
-#
-# A netid that sits in the Grouper group but has no account behind it - added to
-# the roster but never provisioned - simply produces no line. Not an error, and
-# nothing to handle: group membership is not the same thing as an account.
-_RLIB="<%= context.respond_to?('r_libpath') ? context.r_libpath : '' %>"
-if [ -n "$_RLIB" ]; then
-  _CDIR="${_RLIB%%/R/*}"
-  # %% returns the whole string when there is no /R/ in it - that would point at
-  # the library rather than the course folder, so require that it actually cut.
-  if [ "$_CDIR" != "$_RLIB" ] && [ -d "$_CDIR" ]; then
-    _CGRP="$(stat -c '%G' "$_CDIR/.." 2>/dev/null)"
-    case "$_CGRP" in
-      canvas*)
-        _ROSTER="$(getent group "$_CGRP" | awk -F: '{print $4}' | tr ',' ' ')"
-        if [ -n "$_ROSTER" ]; then
-          getent passwd $_ROSTER >> "$WORKING_DIR/passwd"
-          log "added $(printf '%s\n' $_ROSTER | grep -c .) course members to passwd from $_CGRP"
-        fi
-        ;;
-    esac
-  fi
+# A netid in the group with no account behind it - in the roster but never
+# provisioned - simply produces no line. Not an error, and nothing to handle:
+# group membership is not the same thing as an account.
+<%
+  _course_roster = begin
+    require 'etc'
+    _rlib = context.respond_to?('r_libpath') ? context.r_libpath.to_s : ''
+    if _rlib.include?('/R/')
+      # dirname of the library's course dir is the outer folder, whose group is
+      # the enrolment group; %% on the shell side would do the same cut.
+      _gname = Etc.getgrgid(File.stat(File.dirname(_rlib.split('/R/').first)).gid).name
+      _gname.start_with?('canvas') ? Etc.getgrnam(_gname).mem.join(' ') : ''
+    else
+      ''
+    end
+  rescue StandardError
+    ''   # never let a roster lookup break session startup
+  end
+%>
+_ROSTER="<%= _course_roster %>"
+if [ -n "$_ROSTER" ]; then
+  # getent takes many keys in one call, so a couple of hundred names cost one
+  # process rather than a couple of hundred.
+  getent passwd $_ROSTER >> "$WORKING_DIR/passwd"
+  log "added $(printf '%s\n' $_ROSTER | grep -c .) course members to passwd"
+else
+  log "no course roster resolved - only the session owner will show a name"
 fi
 
 # apptainer already injected the calling user into the container's passwd, so
