@@ -65,15 +65,6 @@ sed 's/^ \{2\}//' > "$WORKING_DIR/rsession.sh" << EOL
   set -x
 
   export R_LIBS_SITE="${R_LIBS_SITE}"
-  # R_LIBS_USER reaches the session's own R as an argument to rsession below,
-  # which configures that R but puts nothing in the environment - so nothing
-  # downstream can see it. The Terminal pane is a child of rsession and inherits
-  # what is exported here, so without this line `echo $R_LIBS_USER` is empty,
-  # `sbatch --export=ALL` has no course library to carry, and a plain `Rscript`
-  # in the Terminal silently runs with the image's packages only. Both this and
-  # the rsession argument expand from the same shell variable set above, so they
-  # cannot disagree.
-  export R_LIBS_USER="${R_LIBS_USER}"
   export TZ="US/Eastern"
   <% if context.respond_to?('slurm_enabled') && context.slurm_enabled.to_s == "true" %>
   # Slurm-enabled sub-apps only: RStudio rebuilds PATH for the session, so this
