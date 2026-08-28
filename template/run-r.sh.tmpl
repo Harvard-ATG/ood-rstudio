@@ -64,10 +64,26 @@ done
 
 echo "Running $1 on $(hostname)"
 
-# -B makes the course folder visible inside the container; R_LIBS_USER tells R
-# where the course packages are. The image supplies R itself - which is the
-# whole point, because the compute node's own R cannot load packages compiled
-# against the container's R.
-apptainer exec -B /shared/courseSharedFolders \
+# -B makes a host path visible at the same path inside the container.
+#
+#   /shared/courseSharedFolders - so the course library and course files exist
+#   $HOME                       - so YOUR files exist
+#
+# The home bind is not redundant. Apptainer does not mount the real home here:
+# without this it fabricates an EMPTY directory at $HOME, so anything you refer
+# to by an absolute path into your own home is silently missing. That breaks
+# ~/<course>/script.R (the course symlink lives in home, and its target being
+# bound does not help when the link itself is absent), and it hides your own
+# package library at $HOME/R/... from every batch job. Relative filenames work
+# either way, because apptainer binds the working directory - which is why this
+# went unnoticed until someone passed a full path.
+#
+# R_LIBS_USER tells R where the COURSE packages are. The image supplies R
+# itself - which is the point, because the compute node's own R cannot load
+# packages compiled against the container's R.
+_BINDS="-B /shared/courseSharedFolders"
+[ -n "$HOME" ] && [ -d "$HOME" ] && _BINDS="$_BINDS -B $HOME"
+
+apptainer exec $_BINDS \
   --env R_LIBS_USER="$R_LIB" \
   "$IMAGE" Rscript "$@"
