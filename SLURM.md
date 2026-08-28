@@ -142,6 +142,45 @@ _ROSTER="<%= course_roster %>"   # built in ERB - see the warning below
 
 Derive the group from the course folder's own group ownership rather than adding an attribute for it.
 
+### How authentication actually works
+
+Worth walking through, because "bind the munge socket in" sounds like a shortcut around security and
+is the opposite.
+
+Start RStudio. OOD submits a Slurm job; that job lands on a compute node and runs
+[`template/script.sh.erb`](template/script.sh.erb) **outside** any container, as the person who
+launched it. The container comes later. So by the time RStudio exists, the process already carries a
+real uid and a real group list, handed to it by the node.
+
+Now that session's Terminal runs `sbatch`. Slurm has to answer one question: **is this really uid
+5163, or is something claiming to be?**
+
+It does not take the client's word for it. `sbatch` opens a unix socket on the node -
+`/run/munge/munge.socket.2` - and asks the local `munged` daemon to vouch for it. `munged` reads the
+uid and gid **from the kernel's view of the connecting process**, not from anything the process says
+about itself, and returns a short-lived credential signed with a key that only the cluster's daemons
+hold. `slurmctld` verifies that signature against its own `munged` and believes the uid inside.
+
+Two things follow, and they are the reason this is safe:
+
+| | |
+|---|---|
+| **The container never asserts an identity** | It asks the node to state one. The claim comes from the kernel, on the real uid the process already had |
+| **The signing key never enters the container** | Only the socket is bound. A credential can be requested; none can be forged |
+
+So the three binds are doing three different jobs, and it is worth keeping them apart:
+
+| Bind | What it is | What it would mean if you got it wrong |
+|---|---|---|
+| `/run/munge` | the **door** - where to ask for a credential | no answer; authentication failures against `slurmctld` |
+| `libmunge` | the **phrasebook** - the library that knows how to ask | the client cannot make the call at all |
+| `/etc/passwd`, `/etc/group` | the **map** - words to numbers, so `SlurmUser=slurm` resolves | the client refuses to start, before it authenticates anything |
+
+**A bound socket is not a granted permission.** Reaching `munged` gets a statement of who the process
+already is. It cannot make a process into someone else, and a student's job is scheduled against
+their own uid whether or not any of this is bound - which is also why removing a name from
+`/etc/passwd` would not stop them submitting, only stop `squeue` printing a name.
+
 ### The binds
 
 | Bind | Why |
