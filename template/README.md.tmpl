@@ -1,0 +1,46 @@
+# Running R jobs for @APP@
+
+RStudio gives you one machine for as long as your session lasts. A **batch job**
+runs your script on the cluster instead - it can take longer, ask for more CPUs,
+and keeps running after you close the browser.
+
+The script here runs your R file with the **same image and the same packages**
+as your RStudio session, so a job produces what you see in the console.
+
+## Run it
+
+    cd ~                     # or wherever your script is
+    sbatch @COURSEPATH@/run-r-job.sh my_script.R
+
+Your output lands in the folder you submitted from, named `@APP@-<jobid>.out`:
+
+    squeue -u $USER          # is it still running?
+    cat @APP@-12345.out      # what did it print?
+
+Submit from a folder of your own. This one is read-only to you, so a job started
+from inside it cannot write its output.
+
+## Ask for more
+
+You do not need to edit anything. Options on the command line beat the settings
+in the script:
+
+    sbatch -c 4 -t 02:00:00 -J hw3 @COURSEPATH@/run-r-job.sh my_script.R
+
+`-c` CPUs, `-t` time as `HH:MM:SS`, `-J` a name of your own so you can pick your
+job out of `squeue`.
+
+## Make it your own
+
+Only if you need to change what the script *does* - a different image, extra
+setup. Copy it first; your copy is yours and nothing will overwrite it:
+
+    cp @COURSEPATH@/run-r-job.sh my-run.sh
+
+Your copy still reads this course's image and library from `course-env.sh` at
+run time, so it will not go stale when the course changes.
+
+## If something breaks
+
+The copy in @COURSEPATH@ is the class version and is always current. Copy it
+again and you are back to a known-good starting point.
