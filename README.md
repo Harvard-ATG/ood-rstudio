@@ -26,6 +26,12 @@ While the server is running, individual user sessions will have log data placed 
 
 Authentication is handled by the script at `template/bin/auth`, which is put in use as a parameter passed to the `rserver` command in `template/rstudio.script.sh` (with the `--auth-pam-helper-path` flag). The `auth` script must be in the correct location and also be marked as executable in order for authentication to work properly.
 
+### Slurm access from inside the container
+
+Sub-apps can opt in to submitting Slurm jobs from within the session, which needs the scheduler's
+binaries, its authentication socket and a usable `/etc/passwd` bound into the container. That is off
+by default and byte-for-byte invisible to sub-apps that do not enable it. See [SLURM.md](SLURM.md).
+
 ### RStudio Server Configuration
 
 The `apptainer exec` command used to launch the Apptainer container binds directories from the host to the container, using the `SING_BINDS` variable to contain those binds. One of those binds links `etc/rstudio` in the OOD app session folder to the `/etc/rstudio` folder in the running container, which is where the RStudio server configuration files are kept. That means that if there's RStudio server behavior that needs to be changed, those changes can be made using that folder within the `template` directory of this repository.
