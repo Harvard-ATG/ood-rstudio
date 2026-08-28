@@ -353,24 +353,12 @@ _render() {
 # also why this is not tied to user_role - someone can be an admin AND staff.
 if [ -n "$_TOOLS" ] && [ -d "$_COURSE_DIR" ] && [ -w "$_COURSE_DIR" ]; then
   mkdir -p "$_TOOLS" && chmod 755 "$_TOOLS"
-  # WRITTEN ONLY WHEN ABSENT, not refreshed. A launch will not overwrite files
-  # that are already there.
-  #
-  # The consequence is worth knowing: changing imagefile or r_libpath in the
-  # form does NOT reach an already-provisioned course folder. Refreshing is a
-  # deliberate act - delete the file (or the folder) and launch again.
-  #
   # NB: the SHARED image path, not the node-local /tmp cache the GPU branch may
   # use for this session - the job lands on a different node.
-  _new=0
-  [ -e "$_TOOLS/run-r-job.sh"  ] || { _render run-r.sh.tmpl      "$_TOOLS/run-r-job.sh"  "run-r-job.sh" 755 && _new=1; }
-  [ -e "$_TOOLS/course-env.sh" ] || { _render course-env.sh.tmpl "$_TOOLS/course-env.sh" "run-r-job.sh" 644 && _new=1; }
-  [ -e "$_TOOLS/README.md"     ] || { _render README.md.tmpl     "$_TOOLS/README.md"     "run-r-job.sh" 644 && _new=1; }
-  if [ "$_new" = "1" ]; then
-    log "provisioned course job-tools: $_TOOLS"
-  else
-    log "course job-tools already present, left untouched: $_TOOLS"
-  fi
+  _render run-r.sh.tmpl      "$_TOOLS/run-r-job.sh"  "run-r-job.sh" 755
+  _render course-env.sh.tmpl "$_TOOLS/course-env.sh" "run-r-job.sh" 644
+  _render README.md.tmpl     "$_TOOLS/README.md"     "run-r-job.sh" 644
+  log "refreshed course job-tools: $_TOOLS"
 else
   log "not refreshing course job-tools (not writable by $(id -un)): ${_TOOLS:-unset}"
 fi
