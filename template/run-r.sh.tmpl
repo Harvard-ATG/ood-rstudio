@@ -78,10 +78,25 @@ echo "Running $1 on $(hostname)"
 # either way, because apptainer binds the working directory - which is why this
 # went unnoticed until someone passed a full path.
 #
+# WHY APPTAINER GETS IT WRONG (worth knowing before "fixing" this): the compute
+# nodes' directory reports home directories as /home/<netid>, while the portal
+# reports /shared/home/<netid>. Apptainer works partly from the passwd entry, so
+# on a compute node it is looking for a home that does not exist there and makes
+# an empty one. An explicit bind does not care what the passwd entry claims,
+# which is why this is a bind and not a --home flag.
+#
+# This is NOT specific to this course or this app. Any apptainer-based app doing
+# a plain `apptainer exec` on these nodes has the same blind spot, and the
+# symptom is silent: relative paths work, absolute ones vanish.
+#
 # R_LIBS_USER tells R where the COURSE packages are. The image supplies R
 # itself - which is the point, because the compute node's own R cannot load
 # packages compiled against the container's R.
 _BINDS="-B /shared/courseSharedFolders"
+
+# Guarded, not unconditional: an unset or missing $HOME would expand to `-B `
+# with nothing after it, which apptainer rejects as a malformed argument - so
+# the job would fail to start at all rather than merely lose the home bind.
 [ -n "$HOME" ] && [ -d "$HOME" ] && _BINDS="$_BINDS -B $HOME"
 
 apptainer exec $_BINDS \
