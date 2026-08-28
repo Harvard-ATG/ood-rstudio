@@ -30,6 +30,12 @@ in the script:
 `-c` CPUs, `-t` time as `HH:MM:SS`, `-J` a name of your own so you can pick your
 job out of `squeue`.
 
+**Order matters.** Options go *before* the script name. Put them after it and
+they are handed to your R script instead: the job still runs, the option is
+quietly ignored, and nothing tells you. This does not do what it looks like:
+
+    sbatch @COURSEPATH@/run-r-job.sh my_script.R -J hw3      # -J ignored
+
 ## Make it your own
 
 Only if you need to change what the script *does* - a different image, extra

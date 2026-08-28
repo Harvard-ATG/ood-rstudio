@@ -16,6 +16,10 @@
 #
 #     sbatch -c 4 -t 02:00:00 -J hw3 @WRAPPER@ my_script.R
 #
+# ORDER MATTERS. Options go BEFORE the script name. Put them after it and they
+# are passed to your R script instead - the job still runs and the option is
+# quietly ignored, which is a hard mistake to spot.
+#
 # Check on it:      squeue -u $USER
 # Read the output:  cat @APP@-<jobid>.out     (lands where you submitted from,
 #                                              so submit from your own folder)
@@ -42,6 +46,21 @@ COURSE_ENV=@COURSE_ENV@
 # Spack is only here to provide the `apptainer` command.
 . /shared/spack/share/spack/setup-env.sh
 spack env activate apptainer
+
+# sbatch options must come BEFORE the script name - anything after it is handed
+# to your R script instead. That mistake is SILENT: the job runs, the flag does
+# nothing, and the output looks entirely normal (observed with a stray
+# --job-name, job 820). So say something rather than let it pass. This is a
+# note, not a refusal - passing real arguments to an R script is legitimate.
+for _arg in "${@:2}"; do
+  case "$_arg" in
+    -*)
+      echo "NOTE: '$_arg' was passed to your R script, not to sbatch." >&2
+      echo "      sbatch options go BEFORE the script name:" >&2
+      echo "        sbatch -J myname -c 4 $(basename "$0") $1" >&2
+      break ;;
+  esac
+done
 
 echo "Running $1 on $(hostname)"
 
