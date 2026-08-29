@@ -1,4 +1,4 @@
-# OOD RStudio App for HUIT OOD
+# Managing R Environments in OOD RStudio App for HUIT OOD
 
 This document describes how R environments are managed by the OOD RStudio app.
 
