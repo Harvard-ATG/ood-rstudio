@@ -1,160 +1,143 @@
 # Slurm from inside the container
 
-**Companion to [README.md](README.md).** The README covers how this app runs RStudio in an apptainer
-container: the session directory, `SING_BINDS`, logging, authentication. This file covers one
-addition. It lets a session submit and query Slurm jobs from inside the container, so students can run
-batch work in the same environment they are already working in.
+**Companion to [README.md](README.md).**
 
-Most of what follows is not a procedure. Almost nothing here is done per course. The machinery lives
-in [`template/script.sh.erb`](template/script.sh.erb) and runs on its own at session start. A course
-turns the machinery on with one attribute on its form.
+The main README explains how this app runs RStudio Server in an Apptainer
+container. This document explains one optional addition: allowing users to
+submit and query Slurm jobs from inside that container.
 
-Read this when enabling Slurm for a course, or when something has broken and the symptom does not
-point anywhere obvious.
+This feature is intended for courses that want students to work interactively
+in RStudio and submit longer-running work to the cluster without changing to a
+different R environment.
+
+Most of this document describes shared app behavior, not per-course work. The
+implementation lives in:
+
+```text
+template/script.sh.erb
+```
+
+A course enables it with a single sub-app setting.
 
 Worked example: [STAT 139](https://github.com/Harvard-ATG/ood-misc-runbooks/blob/main/courses/stat139.md).
 
-## What you configure
+## What a course configures
 
-Three values on the sub-app's `local/<course>.yml.erb`, and nothing else:
+A Slurm-enabled course needs these values in:
 
-| Attribute | What it does |
+```text
+local/<course>.yml.erb
+```
+
+| Attribute | Purpose |
 |---|---|
-| `slurm_enabled: "true"` | the switch. Turns on everything below |
-| `imagefile` | which image, and so which R a job runs |
-| `r_libpath` | where the course's packages live |
+| `slurm_enabled: "true"` | Enables the Slurm integration |
+| `imagefile` | Selects the RStudio image and therefore the R version used in batch jobs |
+| `r_libpath` | Selects the course-managed R package library |
 
-`imagefile` and `r_libpath` already exist for any course with a shared library. `slurm_enabled` is the
-only new one.
+`imagefile` and `r_libpath` may already exist for a course using a shared R
+library. `slurm_enabled` is the Slurm-specific switch.
 
-> **List all three under `form:` as well as `attributes:`.** OOD only passes `form:`-listed attributes
-> into `context`. An attribute listed under `attributes:` alone makes every guard evaluate false, with
-> no error and no log line - the block simply does not run. A hard-coded value listed under `form:` is
-> still hidden from the user in the dashboard.
+> **Important:** List these values under both `attributes:` and `form:`. Open
+> OnDemand passes only `form:`-listed values into `context`. If an attribute is
+> omitted from `form:`, an ERB conditional silently evaluates as false. There is
+> no error and no log line. A hard-coded value listed under `form:` is still
+> hidden from the user in the dashboard.
 
-That is the whole per-course setup. The rest of this page describes what the switch turns on.
+The course does not need to create its own bind mounts, identity files, or
+wrapper scripts. The shared app creates those automatically at session startup.
 
 ## Why anything is needed
 
-RStudio runs in an apptainer container. Inside the container is R, the packages in the image, and not
-much else. Giving every student the same R is the point of a container.
+RStudio runs inside an Apptainer container. The container contains R, RStudio,
+and packages included in the image.
 
-Running Slurm jobs from inside a container is the problem. Almost everything a Slurm job needs sits
-outside the container, on the compute node. The work is bringing each piece in.
+That consistency is useful: every student starts with the same R version and
+the same base package versions.
 
-Three things are missing inside the container:
+It also creates a boundary. Slurm and several services required by Slurm live
+outside the container, on the compute node. The container cannot use them until
+the app makes them visible.
 
-1. **The Slurm commands.** Without the Slurm commands (like `sbatch`, `squeue`, `sacct`), RStudio in
-   the container can never see or talk to Slurm. The Slurm commands weren't originally part of the
-   image, so when you try to use the Slurm commands you would get `command not found`. The Slurm
-   commands live on the compute node, in `/opt/slurm/bin`.
+Three things are missing by default:
 
-2. **The munge socket.** Munge is the service Slurm uses to check identity. Without munge, Slurm can
-   never confirm who sent a job, and the job is rejected before it starts. Munge also runs on the
-   compute node, and listens on a socket at `/run/munge`.
+1. **The Slurm commands**, such as `sbatch`, `squeue`, and `sacct`.
+2. **The Munge socket**, which Slurm uses to authenticate a request.
+3. **The identity files**, which translate usernames and group names into the
+   numeric IDs used by Unix and Slurm.
 
-3. **The name-to-number maps.** Humans write and read names. Machines write and read numbers.
-   `/etc/passwd` and `/etc/group` are the two files that convert between the two. Every service that
-   needs to know who someone is reads them.
-
-   `/etc/passwd` holds one account per line. `/etc/group` holds one group per line. Each line starts
-   with a name, and carries the number the name stands for.
-
-   Here is an account. A student named Maya Chen has the netid `mch247`:
-
-   ```
-   mch247:*:54321:1025173:Maya Chen:/shared/home/mch247:/bin/bash
-   ```
-
-   The name is `mch247`. The number is `54321`.
-
-   Here is a group:
-
-   ```
-   canvas170320-staff-1168564:*:1168564:jgx375,zil005
-   ```
-
-   The name is `canvas170320-staff-1168564`. The number is `1168564`. The members are `jgx375` and
-   `zil005`. (The student above is made up. The group is real.)
-
-   Slurm has an account of its own. Slurm's config says `SlurmUser=slurm`. When a Slurm command
-   starts, the command looks up `slurm` in `/etc/passwd` to find the number.
-
-   The container image ships its own `/etc/passwd`. The image's copy lists only the accounts the image
-   was built with - no `slurm`, and nobody from Harvard. The lookup finds nothing, and no Slurm
-   command runs at all.
-
-None of the three is a permissions problem. Nothing is refusing access. The Slurm commands, munge, and
-the account names are all on the compute node, and the container cannot see the compute node.
+None of these is a permissions problem. The required resources exist on the
+compute node, but the container cannot see them by default.
 
 ```mermaid
 flowchart LR
     subgraph node["Compute node"]
         direction TB
         SB["/opt/slurm<br/>sbatch · squeue · sacct"]
-        MU["/run/munge<br/>auth socket"]
-        DIR["host directory<br/>slurm · munge · the user"]
+        MU["/run/munge<br/>authentication socket"]
+        ID["Host identity records<br/>users, groups, slurm"]
         HM["/shared/home/&lt;netid&gt;"]
     end
 
-    subgraph ctr["Apptainer container — the RStudio session"]
+    subgraph ctr["Apptainer container — RStudio session"]
         direction TB
-        RR["R + the image's packages"]
-        PW["/etc/passwd · /etc/group<br/><i>image's own — no slurm user</i>"]
-        PA["PATH<br/><i>no /opt/slurm/bin</i>"]
+        RR["R + image packages"]
+        PW["Image /etc/passwd and /etc/group"]
+        PA["PATH<br/>no /opt/slurm/bin"]
     end
 
     SB -. "not visible" .-> PA
     MU -. "not reachable" .-> ctr
-    DIR -. "names do not match" .-> PW
-    HM -. "empty dir invented" .-> ctr
+    ID -. "not present" .-> PW
+    HM -. "not mounted by default" .-> ctr
 ```
 
-Everything the container needs is a few centimetres away on the same machine, and none of it is
-reachable. The setup below hands each piece across the boundary, then makes it findable.
+## Identity files: names and numbers
 
-```mermaid
-flowchart LR
-    subgraph node2["Compute node"]
-        direction TB
-        SB2["/opt/slurm"]
-        MU2["/run/munge"]
-        ML["libmunge.so.2"]
-        MG["merged passwd/group<br/><i>built at session start</i>"]
-        HM2["$HOME"]
-    end
+People use names; Unix uses numbers.
 
-    subgraph ctr2["Apptainer container"]
-        direction TB
-        P2["/opt/slurm<br/>+ on PATH"]
-        M2["/run/munge"]
-        L2["/opt/hostlib/libmunge.so.2"]
-        E2["/etc/passwd · /etc/group"]
-        H2["$HOME"]
-    end
+The files `/etc/passwd` and `/etc/group` translate between the two:
 
-    SB2 == "bind, same path" ==> P2
-    MU2 == "bind" ==> M2
-    ML == "bind to side path" ==> L2
-    MG == "bind over" ==> E2
-    HM2 == "bind" ==> H2
+- `/etc/passwd` maps usernames to numeric user IDs and primary group IDs.
+- `/etc/group` maps group names to numeric group IDs and group membership.
+
+The names and numbers below are illustrative.
+
+Suppose a student named **Maya Chen** has the NetID `mch247`:
+
+```text
+mch247:*:54321:1025173:Maya Chen:/shared/home/mch247:/bin/bash
 ```
 
-## What the switch turns on
+This entry says that:
 
-Everything below lives in [`template/script.sh.erb`](template/script.sh.erb) and runs at session
-start. **None of it is done per course.** It is written down so that when something breaks, the shape
-of the machinery is on record.
+- Maya's username is `mch247`;
+- her numeric user ID is `54321`;
+- her primary group ID is `1025173`;
+- her home directory is `/shared/home/mch247`.
 
-A sub-app that does not turn the switch on is byte-for-byte unchanged.
+A course staff group might look like:
 
-### A passwd and group the Slurm client can use
+```text
+canvas170320-staff-1168564:*:1168564:jgx375,zil005
+```
 
-The container needs a `/etc/passwd` that lists the accounts Slurm looks up. Start from the image's own
-file, then ask the compute node for the accounts the image is missing.
+Slurm also needs a service account. Its configuration includes:
 
-`getent` is the command that asks the node. Give `getent` a name, and it returns the line for that
-name:
+```text
+SlurmUser=slurm
+```
+
+Before a Slurm client can start, it needs to resolve `slurm` to a numeric user
+ID. It also needs to resolve the user submitting the job and that user's
+groups.
+
+The image has its own `/etc/passwd` and `/etc/group`, created when the image
+was built. Those files contain only the accounts the image was built with. They
+do not contain the current user, the course groups, or the `slurm` service
+account. The lookup finds nothing, and no Slurm command runs at all.
+
+The app therefore creates merged identity files at session startup:
 
 ```bash
 apptainer exec "$_IMG" cat /etc/passwd > "$WORKING_DIR/passwd"
@@ -162,96 +145,134 @@ apptainer exec "$_IMG" cat /etc/group  > "$WORKING_DIR/group"
 
 getent passwd slurm munge "$(id -un)" >> "$WORKING_DIR/passwd"
 getent group  slurm munge              >> "$WORKING_DIR/group"
-for _g in $(id -Gn); do getent group "$_g" >> "$WORKING_DIR/group"; done
+
+for _g in $(id -Gn); do
+  getent group "$_g" >> "$WORKING_DIR/group"
+done
 ```
 
-The new file is then bound over the container's own `/etc/passwd`.
+The generated files are bound over the container's `/etc/passwd` and
+`/etc/group`.
 
-> **`$(id -un)` is not optional.** Apptainer writes an entry for whoever launched the session. Binding
-> a file over `/etc/passwd` replaces the whole file, and the entry apptainer wrote goes with it. Leave
-> the launching user out and the session has a number with no name attached.
+> `$(id -un)` is required. Binding a replacement `/etc/passwd` hides the
+> entry Apptainer normally supplies for the launching user. If the launching
+> user is omitted, the session has a numeric UID without a matching name.
 
-**Optional — resolve everyone in the course.** Only the accounts in the bound file resolve. So a user
-sees their own netid in `squeue`, and everyone else as a bare number. Add the course roster to give
-teaching staff names instead of numbers:
+### Optional: resolve the whole course roster
+
+By default, a session can resolve the launcher and required service accounts.
+A staff member running `squeue` therefore sees other users as numeric IDs.
+
+If staff need usernames for all course members, build a roster on the portal
+and resolve each username individually during session startup:
 
 ```bash
-_ROSTER="<%= course_roster %>"   # built in ERB - see the warning below
+_ROSTER="<%= course_roster %>"
 [ -n "$_ROSTER" ] && getent passwd $_ROSTER >> "$WORKING_DIR/passwd"
 ```
 
-> **Build the roster on the portal, not on the compute node.** Asking for a whole group at once
-> (`getent group <name>`) works on the portal and does not work on a compute node. Measured on the
-> same group: 179 names on the portal, 1 name on the node. SSSD group enumeration is off everywhere
-> except the portal. `script.sh.erb` runs on the compute node, so build the *list* of names in ERB,
-> which is evaluated on the portal, and look up each name on the node. Per-name lookups work
-> everywhere.
+Build the roster in ERB on the portal. Group enumeration is incomplete on
+compute nodes: the same group returned 179 names on the portal and 1 name on a
+compute node, because SSSD enumeration is off. Per-user `getent passwd <netid>`
+lookups work reliably everywhere.
 
-Take the group name from the course folder's own group ownership. No extra attribute is needed.
+Take the group name from the course folder's own group ownership. No extra
+attribute is needed.
 
-### How authentication actually works
+## Munge authentication
 
-Binding the munge socket into the container sounds like a shortcut around security. Binding the socket
-is the opposite of a shortcut, and the reason matters.
+Munge is the authentication service used by Slurm.
 
-Start RStudio. OOD submits a Slurm job. The job lands on a compute node and runs
-[`template/script.sh.erb`](template/script.sh.erb) outside any container, as the person who launched
-it. The container starts later. So by the time RStudio is running, the process already carries a real
-user number and a real group list, handed to it by the node.
+The container does not claim to be Maya Chen, `mch247`, or any other user.
+Instead, the Slurm client asks the local Munge daemon to identify the process.
 
-Now the session's Terminal runs `sbatch`. Slurm has one question to answer: **is the caller really
-user `54321`, or is something claiming to be?**
+The sequence is:
 
-Slurm does not take the caller's word for it. `sbatch` opens a socket on the node at
-`/run/munge/munge.socket.2` and asks the local `munged` daemon to vouch for the caller. `munged` reads
-the user number from the kernel's view of the connecting process, not from anything the process says
-about itself. `munged` then returns a short-lived credential, signed with a key that only the
-cluster's daemons hold. `slurmctld` checks the signature against its own `munged`, and believes the
-user number inside.
+1. Open OnDemand starts the interactive session on a compute node as the
+   launching user.
+2. The RStudio container inherits that real user identity from the host.
+3. A user runs `sbatch` from the RStudio Terminal.
+4. `sbatch` contacts the host's Munge daemon through
+   `/run/munge/munge.socket.2`.
+5. Munge obtains the calling process's UID and GID from the kernel.
+6. Munge returns a short-lived signed credential.
+7. Slurm verifies the credential and schedules the job as the submitting user.
 
-Two things follow, and they are why binding the socket is safe:
+The container receives only the Munge socket. It does not receive the Munge
+signing key.
 
-| | |
+| Resource | Role |
 |---|---|
-| **The container never states an identity** | The container asks the node to state one. The claim comes from the kernel, and it is the real user number the process already had |
-| **The signing key never enters the container** | Only the socket is bound. A credential can be asked for. None can be forged |
+| `/run/munge` | The connection point: where the Slurm client asks Munge for a credential |
+| `libmunge.so.2` | The client library: how the Slurm client speaks the Munge protocol |
+| `/etc/passwd` and `/etc/group` | The identity map: how names such as `slurm` and `mch247` resolve to numbers |
 
-The three binds do three different jobs, and keeping the jobs apart makes a failure easy to place:
+Binding the socket does not grant extra permissions. It lets Munge report the
+identity that the process already has on the host. A student's job is scheduled
+against their own user ID whether or not any of this is bound, which is also why
+removing a name from `/etc/passwd` would not stop them submitting. It would only
+stop `squeue` printing a name.
 
-| Bind | What it is | What goes wrong without it |
-|---|---|---|
-| `/run/munge` | the **door** - where to ask for a credential | nothing answers; `slurmctld` rejects the job |
-| `libmunge` | the **phrasebook** - the library that knows how to ask | the client cannot make the call at all |
-| `/etc/passwd`, `/etc/group` | the **map** - names to numbers, so `SlurmUser=slurm` resolves | the client refuses to start, before it authenticates anything |
+## Bind mounts
 
-**A bound socket is not a granted permission.** Reaching `munged` gets a statement of who the process
-already is. Reaching `munged` cannot turn one process into someone else. A student's job is scheduled
-against their own user number whether or not any of the binds are there — which is also why taking a
-name out of `/etc/passwd` would not stop that student submitting. Taking the name out only stops
-`squeue` printing a name.
+The app makes the following resources visible inside the container.
 
-### The binds
-
-| Bind | Why |
+| Bind | Why it is needed |
 |---|---|
-| `/opt/slurm` | client binaries and libraries — at the **same path**, because Slurm's plugins `dlopen` by absolute path |
-| `/run/munge` | the authentication socket |
-| `$MUNGELIB:/opt/hostlib/libmunge.so.2` | the auth library, on a side path so it does not shadow the image's own `/usr/lib64` |
-| `$WORKING_DIR/passwd:/etc/passwd` | the merged file from the section above |
-| `$WORKING_DIR/group:/etc/group` | the merged file from the section above |
-| `$HOME` | so the user's files and personal package library are visible to a job |
+| `/opt/slurm` | Slurm client binaries, configuration, libraries, and plugins |
+| `/run/munge` | Munge authentication socket |
+| `$MUNGELIB:/opt/hostlib/libmunge.so.2` | Munge client library, mounted at a side path |
+| `$WORKING_DIR/passwd:/etc/passwd` | Merged user identity file |
+| `$WORKING_DIR/group:/etc/group` | Merged group identity file |
+| `$HOME` | User files and personal R package library |
 
-Find the munge library at run time. The patch level differs between machines, so the exact filename
-cannot be written down in advance:
+`/opt/slurm` is mounted at the same path as the host. Slurm plugins load by
+absolute path, so changing the in-container location breaks the client.
+
+Resolve the Munge library at runtime because its exact path varies. The patch
+level differs between machines:
 
 ```bash
 MUNGELIB=$(readlink -f /usr/lib64/libmunge.so.2)
 ```
 
-### Making the bound pieces findable
+Bind it under `/opt/hostlib` rather than over a system library directory in the
+image. This prevents the host library from accidentally replacing unrelated
+libraries in the container.
 
-A bind makes a file **exist** inside the container. A bind does not make the file **findable**. A
-command that exists and is not on `PATH` looks exactly like a command that was never installed.
+```mermaid
+flowchart LR
+    subgraph node["Compute node"]
+        direction TB
+        SB["/opt/slurm"]
+        MU["/run/munge"]
+        ML["libmunge.so.2"]
+        MG["Generated passwd/group"]
+        HM["$HOME"]
+    end
+
+    subgraph ctr["Apptainer container"]
+        direction TB
+        P2["/opt/slurm<br/>on PATH"]
+        M2["/run/munge"]
+        L2["/opt/hostlib/libmunge.so.2"]
+        E2["/etc/passwd and /etc/group"]
+        H2["$HOME"]
+    end
+
+    SB == "bind at same path" ==> P2
+    MU == "bind" ==> M2
+    ML == "bind to side path" ==> L2
+    MG == "bind over" ==> E2
+    HM == "bind" ==> H2
+```
+
+## Making resources discoverable
+
+A bind makes a file exist inside the container. It does not necessarily make
+the file easy for a command to find.
+
+The startup script sets:
 
 ```bash
 export APPTAINERENV_APPEND_PATH="/opt/slurm/bin"
@@ -259,196 +280,248 @@ export APPTAINERENV_LD_LIBRARY_PATH="/opt/slurm/lib:/opt/hostlib:${LD_LIBRARY_PA
 export APPTAINERENV_SLURM_CONF="/opt/slurm/etc/slurm.conf"
 ```
 
-> **RStudio builds its own environment for every session.** The three exports above are set before
-> RStudio starts, and RStudio does not carry them through. So they never reach a Terminal pane or the
-> R console. Set `PATH` again in the two places RStudio does not rebuild: a `/etc/profile.d/` drop-in,
-> bound in for interactive shells, and an `export PATH=` inside the generated `rsession.sh`, so
-> `system("sbatch …")` works from the R console.
+RStudio rebuilds parts of its environment when it starts a Terminal or an R
+session. The settings above are therefore not enough by themselves.
 
-## Where course-managed scripts live
+The app also:
 
-Turning the switch on gets a student a working `sbatch`. Turning the switch on does not tell a student
-what to type. A job still has to activate spack to get `apptainer`, run the right image, and point R
-at the course library — and two of those three values live on the sub-app form, where no student can
-see them.
+- binds a `/etc/profile.d/` drop-in so interactive Terminal shells get the
+  Slurm path; and
+- exports the needed `PATH` inside generated `rsession.sh` so R commands such
+  as `system("sbatch myjob.sh")` work.
 
-So there is a convention for where course-facing scripts are kept. The convention is deliberately the
-same for every course: same folder name, same layout, same instruction to a student, whatever the
-course and whatever the language. Only the two values inside differ.
+If `/opt/slurm/bin/sbatch` exists but `sbatch` says `command not found`, check
+the environment and `PATH`, not the bind itself. A useful tell is that
+`/usr/lib/rstudio-server/bin` is missing from `PATH` too, although the app
+prepends it explicitly.
 
-```
+## Course-facing batch-job tools
+
+Enabling Slurm gives a session working `sbatch` commands. It does not by itself
+give students a supported way to run R on a separate compute node.
+
+A batch job must:
+
+1. activate Spack so it can find `apptainer`;
+2. run the same image used by the RStudio session;
+3. set the course R package library inside that image.
+
+Two of those three values live on the sub-app form, where no student can see
+them. The app therefore generates course-facing job tools in:
+
+```text
 <course shared folder>/job-tools/
-├── run-r-job.sh     the wrapper       — a Python course would carry run-py-job.sh
-├── course-env.sh    the two values    — same file, same name, every course
-└── README.md        student instructions
+├── run-r-job.sh
+├── course-env.sh
+└── README.md
 ```
 
-**Why the course folder and not each user's home.** A file in a home directory has to be two things at
-once: the class's supported copy, and that person's own file. The two want opposite maintenance rules.
-Refresh the file and a student's edits are destroyed. Keep a student's edits and the file silently
-goes stale. The first version of the wrapper wrote into `$HOME` and told the student, four lines
-apart, that the file "cannot drift" and was "never overwritten". Only one of the two can be true.
+| File | Purpose |
+|---|---|
+| `run-r-job.sh` | Wrapper that starts Apptainer and runs `Rscript` |
+| `course-env.sh` | Current course image and R library values |
+| `README.md` | Student-facing instructions |
 
-**Why teaching staff can write it and students cannot.** Students are expected to modify their batch
-jobs. Modifying batch jobs is often the point of the course. So one copy has to stay correct no matter
-what anyone edits. Keeping that copy in a folder students can read and cannot write means a known-good
-version is always one `cp` away.
+The layout is deliberately course-agnostic: same folder name, same file names,
+same instruction to a student, whatever the course and whatever the language. A
+Python course would carry `run-py-job.sh`. Only the values inside differ.
 
-Two checks decide what a session writes. The checks run independently, not as an `if/elif` chain,
-because one person can be both teaching staff and an admin:
-
-| Launcher | Course folder | Their home |
-|---|---|---|
-| staff / faculty (`[ -w "$COURSE_DIR" ]`) | refreshed every launch | nothing |
-| admin / dev team (role from the sub-app) | untouched | a course-named copy, for testing |
-| student | untouched | **nothing** |
-
-The staff check is `[ -w ]`, not group membership. Being able to write the folder is what actually
-matters, and `[ -w ]` needs no staff list to be kept up to date.
-
-The admin branch is not a nicety. The dev team usually launches a course before the course folder
-exists, or before Grouper has propagated. In that state the first check does nothing, and without the
-second check there would be nothing to test with.
-
-**Split the mechanism from the values.** A copy freezes whatever is written inside it. So the values
-go in a separate file, and the wrapper reads that file every time it runs:
+The wrapper contains the mechanism. `course-env.sh` contains the values:
 
 ```bash
-# course-env.sh - generated, never hand-written
-IMAGE=/shared/apptainerImages/<course>.sif
-R_LIB=<course folder>/R/x86_64-pc-linux-gnu-library/4.5
+IMAGE=/shared/apptainerImages/<image>.sif
+R_LIB=<course shared folder>/R/x86_64-pc-linux-gnu-library/<R version>
 ```
 
+The wrapper reads `course-env.sh` at runtime:
+
 ```bash
-# in the wrapper - pointer substituted at generation, values as a fallback
 IMAGE=@IMAGE@
 R_LIB=@RLIBS@
 COURSE_ENV=@COURSE_ENV@
+
 [ -r "$COURSE_ENV" ] && . "$COURSE_ENV"
 ```
 
-A copy a student took in week 2 uses week 9's image, and the student does nothing to get it. The
-values written into the wrapper are a fallback, for the case where `course-env.sh` does not exist yet.
-A course tested before its folder is provisioned is in exactly that state, and every course starts
-there.
+This design lets a student copy `run-r-job.sh` once while still receiving later
+updates to the image or course library path. A copy taken in week 2 uses week
+9's image, and the student does nothing to get it.
 
-**How a student's job ends up with the same R as their session:**
+The embedded values are a fallback for early testing, before the course shared
+folder exists. Every course starts in that state.
 
 ```mermaid
 flowchart TD
     A["Student in the RStudio Terminal<br/><code>sbatch run-r-job.sh hw3.R</code>"]
-    A --> B["Slurm schedules the job<br/>on some other compute node"]
+    A --> B["Slurm schedules the job<br/>on another compute node"]
     B --> C["run-r-job.sh reads<br/>job-tools/course-env.sh"]
     C --> D["spack activate apptainer"]
-    D --> E["apptainer exec — the SAME image<br/>as the RStudio session"]
+    D --> E["apptainer exec — the same image<br/>as the RStudio session"]
     E --> F["Rscript hw3.R<br/>with R_LIBS_USER = the course library"]
 
-    C -. "IMAGE, R_LIB read at run time,<br/>so a copy cannot go stale" .-> C
+    C -. "IMAGE and R_LIB are read at run time,<br/>so a copy cannot go stale" .-> C
 ```
 
-**What students are told:**
+### Why the canonical files live in the course folder
+
+The course folder holds the maintained, read-only-for-students copy.
+
+Students are expected to copy and modify their own job scripts. They are not
+expected to maintain the course wrapper. A shared canonical copy means there
+is always a known-good version available.
+
+A file in a home directory cannot do this job, because it has to be two things
+at once: the class's supported copy, and that person's own file. Those want
+opposite maintenance rules. Refresh it and a student's edits are destroyed.
+Preserve their edits and it silently goes stale.
+
+The write behavior is intentionally different for three launchers:
+
+| Launcher | Course `job-tools/` | Launcher's home |
+|---|---|---|
+| Staff or faculty able to write the course folder | Refresh on launch | Do not write |
+| Admin or development staff | Do not modify | Write a course-named test copy |
+| Student | Do not modify | Do not write |
+
+Use write access to the course folder as the staff test:
 
 ```bash
-cp ~/<canvas id>/job-tools/run-r-job.sh .
+[ -w "$COURSE_DIR" ]
+```
+
+This measures the capability that matters without maintaining a separate
+hard-coded staff list.
+
+The two checks run independently rather than as an `if/elif` chain, because one
+person can be both staff and an admin. The admin branch is not a nicety: the
+dev team usually launches a course before its folder exists or before Grouper
+has propagated, so without it there would be nothing to test with.
+
+### Student workflow
+
+Students should work in a directory they own:
+
+```bash
+cp ~/<canvas-id>/job-tools/run-r-job.sh .
 sbatch run-r-job.sh my_script.R
+```
+
+They can override Slurm defaults on the command line:
+
+```bash
 sbatch -c 4 -t 02:00:00 -J hw3 run-r-job.sh my_script.R
 ```
 
-> **Order matters, and getting the order wrong is silent.** Options go before the script name. Put an
-> option after the script name and Slurm passes it to the script instead. The job completes, the
-> option is ignored, and nothing reports a problem. Have the wrapper warn.
+Slurm options must come before the wrapper name. Options placed after the
+wrapper are passed to the wrapper as ordinary arguments and are ignored without
+an obvious error. The job still completes, which is what makes the mistake hard
+to spot. The wrapper warns when it sees one.
 
-Nothing has to be configured to name a job. OOD names the session's Slurm job after the sub-app file,
-so `${SLURM_JOB_NAME##*/}` is the sub-app name.
+Nothing has to be configured to name a job. Open OnDemand names the session's
+Slurm job after the sub-app file, so `${SLURM_JOB_NAME##*/}` is the sub-app
+name.
+
+## Why the wrapper is required
+
+A direct `sbatch` submission can inherit `R_LIBS_USER`, so it may find the
+course library and show the expected path in `.libPaths()`.
+
+That is not enough.
+
+The compute node has its own system R at `/usr/lib64/R`. Course packages with
+compiled code are built against the R version inside the RStudio image. A job
+using the system R can therefore find a package and still fail to load it:
+
+```text
+Error: package or namespace load failed for 'digest' in dyn.load(...):
+  undefined symbol: NO_REFERENCES
+
+package 'digest' was built under R version 4.5.0
+```
+
+The wrapper starts Apptainer inside the batch job and runs the script in the
+same image used by RStudio.
+
+> The library path tells R where the package is. The container provides an R
+> version that can load it.
 
 ## Troubleshooting
 
 <details>
-<summary><strong>Every Slurm command fails: <code>Invalid user for SlurmUser slurm, ignored</code></strong></summary>
+<summary><strong>Every Slurm command fails with <code>Invalid user for SlurmUser slurm</code></strong></summary>
 
-Every bind is in place and every command still fails with `fatal: Unable to process configuration
-file`.
+**Cause:** The Slurm client cannot resolve the `slurm` service account because
+the image's `/etc/passwd` does not contain it. The client refuses to start at
+all, with `fatal: Unable to process configuration file`.
 
-**Why.** The failure is name resolution, not permissions. `slurm.conf` names `SlurmUser=slurm`, and
-the image's `/etc/passwd` has no `slurm` account. The client cannot turn the name into a number, so
-the client refuses to start at all.
+**Check:** Inspect the generated passwd file and confirm it includes `slurm`
+and the launching user.
 
-**Fix.** Build the merged `passwd` and `group` described above. Remember to append the launching user.
+**Fix:** Generate merged passwd and group files, then bind them over the
+container's `/etc/passwd` and `/etc/group`.
 </details>
 
 <details>
-<summary><strong>The whole injection block silently does nothing</strong></summary>
+<summary><strong>The Slurm injection block does nothing</strong></summary>
 
-The sub-app launches normally. The log shows only the original binds.
+**Cause:** `slurm_enabled` is present under `attributes:` but absent from
+`form:`. The value never reaches `context`, so the ERB guard evaluates false.
 
-**Why.** The attribute is listed under `attributes:` and not under `form:`. OOD never puts it in
-`context`, so every guard evaluates false.
-
-**Fix.** List the attribute under `form:` as well. Easiest mistake to make and hardest to spot, because
-there is no error.
+**Fix:** List the value under both `attributes:` and `form:`. This is the
+easiest mistake to make and the hardest to spot, because there is no error.
 </details>
 
 <details>
-<summary><strong><code>sbatch: command not found</code>, with the binds demonstrably present</strong></summary>
+<summary><strong><code>sbatch: command not found</code>, but <code>/opt/slurm/bin/sbatch</code> exists</strong></summary>
 
-`ls /opt/slurm/bin` inside the container lists the binaries, and `sbatch` is still not found.
+**Cause:** The bind worked, but RStudio's reconstructed Terminal or R-session
+environment does not include `/opt/slurm/bin` in `PATH`.
 
-**Why.** RStudio builds its own environment for each session, so `APPTAINERENV_APPEND_PATH` never
-reaches the Terminal or the console. `/usr/lib/rstudio-server/bin` goes missing the same way, which is
-a good tell.
-
-**Fix.** Set `PATH` in the `profile.d` drop-in and in `rsession.sh`. See
-[Making the bound pieces findable](#making-the-bound-pieces-findable).
+**Fix:** Confirm the profile drop-in is bound for Terminal shells and the
+generated `rsession.sh` exports the required path for the R console.
 </details>
 
 <details>
-<summary><strong>Batch jobs cannot see anything in the user's home</strong></summary>
+<summary><strong>Batch jobs cannot see files in the user's home directory</strong></summary>
 
-An absolute path into a home directory vanishes inside a job. The same file by relative name works.
+**Cause:** Apptainer creates an empty home directory when the node-reported
+home path does not match the real shared home path. The compute nodes report
+homes as `/home/<netid>` while the real path is `/shared/home/<netid>`, so
+Apptainer has nothing valid to mount. Relative paths still work because the job
+working directory is available, which hides the problem.
 
-**Why.** Apptainer is not mounting the real home directory. Apptainer invents an empty directory and
-mounts that instead. The compute nodes report homes as `/home/<netid>`, and the real path is
-`/shared/home/<netid>`, so apptainer has nothing valid to mount. Relative paths keep working because
-the working directory is bound separately, which is why the problem goes unnoticed.
-
-**Fix.** Bind the home directory explicitly. Guard it, so an unset `$HOME` cannot build a malformed
-argument:
+**Fix:** Explicitly bind `$HOME`, guarded against an unset or invalid value:
 
 ```bash
 [ -n "$HOME" ] && [ -d "$HOME" ] && _BINDS="$_BINDS -B $HOME"
 ```
 
-The same gap hides a user's own package library at `$HOME/R/...` from every job. Not specific to any
-one course: any apptainer app running a plain `apptainer exec` on these nodes has it.
+This bind also makes the user's own R package library under `$HOME/R/...`
+available inside batch jobs. The problem is not specific to any one course: any
+Apptainer app running a plain `apptainer exec` on these nodes has it.
 </details>
 
 <details>
-<summary><strong>A job finds the course library and still cannot load from it</strong></summary>
+<summary><strong>A job sees the course library but cannot load a compiled package</strong></summary>
 
-`--export=ALL` carries `R_LIBS_USER`, so `.libPaths()` is correct — and then:
+**Cause:** The job is using the compute node's system R instead of the R inside
+the course container.
 
-```
-Error: package or namespace load failed for 'digest' in dyn.load(...):
-  undefined symbol: NO_REFERENCES
-package 'digest' was built under R version 4.5.0
-```
-
-**Why.** The compute node has an R of its own, at `/usr/lib64/R`. The course packages are compiled
-against the container's R.
-
-**Fix.** Run the job through the image. The environment variable gives the job the address. The
-container gives the job an R that can read what is at that address. The same library path is not the
-same R — and that, not convenience, is why the wrapper exists.
+**Fix:** Submit through `run-r-job.sh`, which starts the configured Apptainer
+image and runs `Rscript` inside it.
 </details>
 
 ## Reference
 
-- OOD passes only `form:`-listed attributes into `context`.
-- Files in `template/` are staged into `${JOBROOT}`; `before.sh` sets `export JOBROOT=$PWD`.
-- Use the shared image path, not a node-local cache. The job lands on a different node.
-- `R_LIBS_USER` may point at a library that does not exist yet. R drops missing `.libPaths()` entries
-  silently, so the order of provisioning does not matter.
-- The portal cannot submit Slurm jobs (`Unable to contact slurm controller`). Submit from the head
-  node or from an app session.
+- Open OnDemand passes only `form:`-listed attributes into `context`.
+- `template/` files are staged into `${JOBROOT}`; `before.sh` sets
+  `export JOBROOT=$PWD`.
+- Use shared image paths. A node-local image cache may not exist on the node
+  selected for the batch job.
+- R silently drops nonexistent package-library paths from `.libPaths()`, so the
+  order of provisioning does not matter.
+- The portal cannot submit Slurm jobs; it cannot contact `slurmctld`. Submit
+  from the head node or from an app session.
 - `sudo` resets `PATH`. Use `/opt/slurm/bin/sbatch` under `sudo -u`.
-- Group enumeration works on the portal and not on compute nodes. Per-name lookups work everywhere.
+- Group enumeration works on the portal and not on compute nodes. Per-name
+  lookups work everywhere.

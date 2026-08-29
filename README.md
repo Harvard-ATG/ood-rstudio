@@ -28,16 +28,22 @@ Authentication is handled by the script at `template/bin/auth`, which is put in 
 
 ### Slurm access from inside the container
 
-A course can let its students submit Slurm jobs from inside the RStudio session, so a student writes R
-in RStudio and sends the long version of the same script to the cluster without leaving RStudio.
+Slurm access is optional and is enabled per sub-application.
 
-Slurm runs on the compute node, outside the container. So the session has to be handed three things it
-does not have: the Slurm commands, the socket Slurm uses to check identity, and an `/etc/passwd` that
-lists the accounts Slurm needs to look up.
+A course that enables Slurm can submit and query Slurm jobs from inside the RStudio container. This
+is intended for courses that want students to work interactively in RStudio and submit
+longer-running work to the cluster without changing to a different R environment.
 
-A sub-app turns all of it on with one attribute. A sub-app that does not turn it on launches exactly as
-it did before. [SLURM.md](SLURM.md) covers how the pieces get in, where the course's batch scripts
-live, and what to check when something breaks.
+Slurm runs on the compute node, outside the container. The container must therefore be given access
+to selected host-side resources, including the Slurm client, the Munge authentication socket, and
+the user and group identity information Slurm needs to resolve names to numeric IDs.
+
+A course opts in with a single attribute on its sub-app form. Sub-apps that do not opt in launch
+unchanged.
+
+The complete architecture, configuration, and troubleshooting are documented in
+[SLURM.md](SLURM.md). That document also covers the generated batch-job tools that let a student run
+an R script on a compute node using the same image as their RStudio session.
 
 ### RStudio Server Configuration
 
