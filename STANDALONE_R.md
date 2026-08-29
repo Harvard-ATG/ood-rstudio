@@ -37,10 +37,6 @@ spack env activate bst262
 Rscript bootstrap.R
 ```
 
-Every Slurm job starts a new shell. Activating Spack on the head node does not
-make R available inside a batch job submitted from that shell, so the batch
-script has to activate the environment again.
-
 ## R through the container
 
 The OOD RStudio app can also provide R through an Apptainer container. The
