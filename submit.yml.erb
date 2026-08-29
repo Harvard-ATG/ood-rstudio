@@ -10,11 +10,13 @@ else
 end
 -%>
 
-# The resources below belong to the INTERACTIVE SESSION itself - the Slurm job
-# that runs RStudio. They are not inherited by jobs a user submits from inside
-# the session: an sbatch run from the RStudio terminal carries its own #SBATCH
-# directives and is scheduled independently. Raising cpus here gives a bigger
-# RStudio; it does not give bigger batch jobs.
+# The resources below belong to the INTERACTIVE SESSION itself: the Slurm job
+# that runs RStudio. They are not inherited by jobs submitted from inside that
+# session. A job submitted with `sbatch` from the RStudio Terminal has its own
+# resource request and is scheduled independently.
+#
+# Raising the CPU or GPU request here gives the interactive RStudio session more
+# resources; it does not give more resources to later batch jobs.
 batch_connect:
   template: "basic"
   conn_params:
