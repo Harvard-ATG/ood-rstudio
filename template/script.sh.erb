@@ -203,7 +203,7 @@ for _g in $(id -Gn); do getent group "$_g" >> "$WORKING_DIR/group"; done
 # lookups still happen here, on the node. Each machine does only what it can.
 #
 # The group is taken from the OUTER course folder's own group ownership - the
-# enrolment group - so nothing is configured and nothing is guessed:
+# enrollment group - so nothing is configured and nothing is guessed:
 #   /shared/courseSharedFolders/170320outer  ->  canvas170320-1168563
 # and the path comes from r_libpath, which the form already supplies.
 #
@@ -216,7 +216,7 @@ for _g in $(id -Gn); do getent group "$_g" >> "$WORKING_DIR/group"; done
     _rlib = context.respond_to?('r_libpath') ? context.r_libpath.to_s : ''
     if _rlib.include?('/R/')
       # dirname of the library's course dir is the outer folder, whose group is
-      # the enrolment group; %% on the shell side would do the same cut.
+      # the enrollment group; %% on the shell side would do the same cut.
       _gname = Etc.getgrgid(File.stat(File.dirname(_rlib.split('/R/').first)).gid).name
       _gname.start_with?('canvas') ? Etc.getgrnam(_gname).mem.join(' ') : ''
     else

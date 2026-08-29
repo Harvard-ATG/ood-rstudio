@@ -1,53 +1,82 @@
 # Slurm from inside the container
 
-**Companion to [README.md](README.md).** The README explains how this app runs RStudio in an
-Apptainer container — the session directory, `SING_BINDS`, logging, authentication. This file covers
-one addition to that: letting a session **submit and query Slurm jobs from inside the container**, so
-students can run batch work in the same environment they are working in.
+**Companion to [README.md](README.md).** The README covers how this app runs RStudio in an apptainer
+container: the session directory, `SING_BINDS`, logging, authentication. This file covers one
+addition. It lets a session submit and query Slurm jobs from inside the container, so students can run
+batch work in the same environment they are already working in.
 
-**Mostly this is not a setup procedure — it is a description of how the pieces fit together.** Almost
-nothing here is done per course. The machinery lives in [`template/script.sh.erb`](template/script.sh.erb); a course turns it on
-with one attribute on its form, and the rest happens at session start.
+Most of what follows is not a procedure. Almost nothing here is done per course. The machinery lives
+in [`template/script.sh.erb`](template/script.sh.erb) and runs on its own at session start. A course
+turns the machinery on with one attribute on its form.
 
-Read it when enabling Slurm for a course, or when something about it has broken and the symptom does
-not obviously point anywhere.
+Read this when enabling Slurm for a course, or when something has broken and the symptom does not
+point anywhere obvious.
 
-Worked example: [STAT 139](https://github.com/Harvard-ATG/ood-misc-runbooks/blob/main/courses/stat139.md)
-in the runbooks repo.
+Worked example: [STAT 139](https://github.com/Harvard-ATG/ood-misc-runbooks/blob/main/courses/stat139.md).
 
-## What you actually configure
+## What you configure
 
-Three values on the sub-app's `.yml.erb`, and nothing else:
+Three values on the sub-app's `local/<course>.yml.erb`, and nothing else:
 
 | Attribute | What it does |
 |---|---|
-| `slurm_enabled: "true"` | the switch. Turns on everything described below |
-| `imagefile` | which image, and therefore **which R** a job runs |
+| `slurm_enabled: "true"` | the switch. Turns on everything below |
+| `imagefile` | which image, and so which R a job runs |
 | `r_libpath` | where the course's packages live |
 
-The last two already exist for any course with a shared library; `slurm_enabled` is the only new one.
+`imagefile` and `r_libpath` already exist for any course with a shared library. `slurm_enabled` is the
+only new one.
 
-> **List every one of them under `form:` as well as `attributes:`.** OOD passes only `form:`-listed
-> attributes into `context`, so an attribute in `attributes:` alone makes every guard silently
-> evaluate false — no error, the block just does not run. A hard-coded value listed under `form:` is
+> **List all three under `form:` as well as `attributes:`.** OOD only passes `form:`-listed attributes
+> into `context`. An attribute listed under `attributes:` alone makes every guard evaluate false, with
+> no error and no log line - the block simply does not run. A hard-coded value listed under `form:` is
 > still hidden from the user in the dashboard.
 
-That is the whole per-course setup. The rest of this page is what that switch turns on.
+That is the whole per-course setup. The rest of this page describes what the switch turns on.
 
-## The problem
+## Why anything is needed
 
-A container is a sealed filesystem with its own idea of who exists. The scheduler lives outside it.
-So from inside, three separate things are missing, and each fails differently:
+RStudio runs in an apptainer container. Inside the container is R, the packages in the image, and not
+much else. Giving every student the same R is the point of a container.
 
-| Missing | Symptom |
-|---|---|
-| the Slurm binaries | `sbatch: command not found` |
-| the munge socket | authentication failures against `slurmctld` |
-| a usable `/etc/passwd` | `Invalid user for SlurmUser slurm` — **every** Slurm command refuses to run |
+Running Slurm jobs from inside a container is the problem. Almost everything a Slurm job needs sits
+outside the container, on the compute node. The work is bringing each piece in.
 
-None of these is a permissions problem, which is what makes them confusing. The container is not
-being denied access; it cannot see the scheduler, cannot authenticate to it, and does not share its
-idea of who people are.
+Three things are missing inside the container:
+
+1. **The Slurm commands.** Without the Slurm commands (like `sbatch`, `squeue`, `sacct`), RStudio in
+   the container can never see or talk to Slurm. The Slurm commands weren't originally part of the
+   image, so when you try to use the Slurm commands you would get `command not found`. The Slurm
+   commands live on the compute node, in `/opt/slurm/bin`.
+
+2. **The munge socket.** Munge is the service Slurm uses to check identity. Without munge, Slurm can
+   never confirm who sent a job, and the job is rejected before it starts. Munge also runs on the
+   compute node, and listens on a socket at `/run/munge`.
+
+3. **The name-to-number maps.** A person writes a name. A machine works in numbers. `/etc/passwd` and
+   `/etc/group` are the files that convert between the two, and every service that needs to know who
+   someone is reads them.
+
+   `/etc/passwd` is plain text, one account per line - a name, then the number that name stands for:
+
+   ```
+   abc123:*:12345:1025173:A Student:/shared/home/abc123:/bin/bash
+   slurm:*:401:401:SLURM workload manager:/var/lib/slurm:/bin/false
+   ```
+
+   `/etc/group` does the same for groups:
+
+   ```
+   canvas170320-staff-1168564:*:1168564:jgx375,zil005
+   ```
+
+   Slurm's own config says `SlurmUser=slurm`. When Slurm starts, Slurm looks up `slurm` in
+   `/etc/passwd` to find the number. The container image ships its own `/etc/passwd`, and that copy
+   lists only the accounts the image was built with - no `slurm`, and nobody from Harvard. The lookup
+   finds nothing, and no Slurm command runs at all.
+
+None of the three is a permissions problem. Nothing is refusing access. The Slurm commands, munge, and
+the account names are all on the compute node, and the container cannot see the compute node.
 
 ```mermaid
 flowchart LR
