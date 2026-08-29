@@ -28,9 +28,16 @@ Authentication is handled by the script at `template/bin/auth`, which is put in 
 
 ### Slurm access from inside the container
 
-Sub-apps can opt in to submitting Slurm jobs from within the session, which needs the scheduler's
-binaries, its authentication socket and a usable `/etc/passwd` bound into the container. That is off
-by default and byte-for-byte invisible to sub-apps that do not enable it. See [SLURM.md](SLURM.md).
+A course can let its students submit Slurm jobs from inside the RStudio session, so a student writes R
+in RStudio and sends the long version of the same script to the cluster without leaving RStudio.
+
+Slurm runs on the compute node, outside the container. So the session has to be handed three things it
+does not have: the Slurm commands, the socket Slurm uses to check identity, and an `/etc/passwd` that
+lists the accounts Slurm needs to look up.
+
+A sub-app turns all of it on with one attribute. A sub-app that does not turn it on launches exactly as
+it did before. [SLURM.md](SLURM.md) covers how the pieces get in, where the course's batch scripts
+live, and what to check when something breaks.
 
 ### RStudio Server Configuration
 
