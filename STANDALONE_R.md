@@ -1,6 +1,47 @@
 # OOD RStudio App for HUIT OOD
 
-This is an overview of managing R environments in HUIT OOD, namely how R interacts with Spack. Installing R via spack is the way that we make R available for use in HPC scripts.
+This document describes how R environments are managed by the OOD RStudio app.
+
+The app supports two related ways of providing R:
+
+- **R installed through Spack**, for command-line and HPC scripts.
+- **R provided by an Apptainer container**, for interactive RStudio sessions.
+
+## R through Spack
+
+Installing R through Spack is how we make R available for command-line and HPC
+scripts. A user activates the appropriate Spack environment in the shell or
+Slurm job where they plan to run their code, then runs `R` or `Rscript`.
+
+For example, a user working interactively on a head node can activate a
+course's Spack environment and start R:
+
+```bash
+source ~/144013/spack/share/spack/setup-env.sh
+spack env activate bst262
+R
+```
+
+The same environment can be activated in a Slurm batch job running on a compute
+node:
+
+```bash
+#!/bin/bash
+#SBATCH -J bootstrap
+#SBATCH -c 4
+#SBATCH -t 02:00:00
+
+source ~/144013/spack/share/spack/setup-env.sh
+spack env activate bst262
+
+Rscript bootstrap.R
+```
+
+Every Slurm job starts a new shell. Activating Spack on the head node does not
+make R available inside a batch job submitted from that shell, so the batch
+script has to activate the environment again.
+
+## R through the container
 
 The OOD RStudio app can also provide R through an Apptainer container. The
 container contains a chosen version of R, RStudio Server, and the packages
