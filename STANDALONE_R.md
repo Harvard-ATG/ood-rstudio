@@ -1,6 +1,25 @@
 # OOD RStudio App for HUIT OOD
 
-This is an overview of managing R environments in HUIT OOD, namely how R interacts with Spack. Installing R via spack is the way that we make R available for use in HPC scripts. We can also make R code available in containers. A container does not reach Slurm on its own, but a sub-app can now opt in to Slurm access from inside the container, which also generates a wrapper for running course R scripts as batch jobs in the same image. See [SLURM.md](SLURM.md).
+This is an overview of managing R environments in HUIT OOD, namely how R interacts with Spack. Installing R via spack is the way that we make R available for use in HPC scripts.
+
+The OOD RStudio app can also provide R through an Apptainer container. The
+container contains a chosen version of R, RStudio Server, and the packages
+included in the image. This gives every user of that RStudio app the same base
+R environment.
+
+Courses can add packages through a shared R library without rebuilding the
+container image. Students' R scripts remain in their home or course directories;
+the container provides the R environment used to run those scripts.
+
+By default, a container does not have access to Slurm. It contains R, but it
+cannot see the Slurm commands, the authentication service, or the host identity
+information needed to submit a job.
+
+A course sub-app can opt in to Slurm access from inside the container. Enabling
+that option also generates a wrapper for running course R scripts as Slurm batch
+jobs in the same image used by the interactive RStudio session.
+
+See [SLURM.md](SLURM.md) for the Slurm integration and batch-wrapper design.
 
 ## R Package Paths
 
