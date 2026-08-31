@@ -450,22 +450,21 @@ same image used by RStudio.
 
 There is a second reason, and it is about where the job is submitted from.
 
-`R_LIBS_USER` is set by this app's session. A Terminal pane inside RStudio has
-it. Open OnDemand's own shell app does not, because that is a different app and
-nothing set it there. Both are called a terminal, so a student can follow the
-same instruction from either one and get different results, with nothing to
-explain the difference.
+A Terminal pane inside RStudio has `R_LIBS_USER`, because this app's session
+sets it and `sbatch` passes it on. Open OnDemand's own shell app does not,
+because that is a different app and nothing set it there.
 
-The wrapper does not inherit the library path. It reads `R_LIB` from
-`course-env.sh`, or falls back to the value written into it, and passes that to
-the container:
+The job gets the course library either way. The wrapper does not read
+`R_LIBS_USER` from the environment. It reads `R_LIB` from `course-env.sh`, or
+falls back to the value written into it, and passes that to the container:
 
 ```bash
 apptainer exec $_BINDS --env R_LIBS_USER="$R_LIB" "$IMAGE" Rscript "$@"
 ```
 
-So `sbatch run-r-job.sh my_script.R` behaves the same wherever it is submitted
-from. Only a bare `sbatch` depends on the environment it inherits.
+So `sbatch run-r-job.sh my_script.R` finds the course packages from the RStudio
+Terminal, from the shell app, or from anywhere else. Only a bare `sbatch`
+depends on where it was submitted from.
 
 ## Troubleshooting
 
