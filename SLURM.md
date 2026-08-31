@@ -324,7 +324,8 @@ them. The app therefore generates course-facing job tools in:
 
 The layout is deliberately course-agnostic: same folder name, same file names,
 same instruction to a student, whatever the course and whatever the language. A
-Python course would carry `run-py-job.sh`. Only the values inside differ.
+Python course would carry `run-py-job.sh`, generated from `run-py-job.sh.tmpl`.
+Only the values inside differ.
 
 The wrapper contains the mechanism. `course-env.sh` contains the values:
 
@@ -380,7 +381,7 @@ The write behavior is intentionally different for three launchers:
 | Launcher | Course `job-tools/` | Launcher's home |
 |---|---|---|
 | Staff or faculty able to write the course folder | Refresh on launch | Do not write |
-| Admin or development staff | Do not modify | Write a course-named test copy |
+| Admin or development staff | Do not modify | Write `run-r-job-<sub-app>-test.sh`, for testing |
 | Student | Do not modify | Do not write |
 
 Use write access to the course folder as the staff test:

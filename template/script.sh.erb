@@ -355,7 +355,7 @@ if [ -n "$_TOOLS" ] && [ -d "$_COURSE_DIR" ] && [ -w "$_COURSE_DIR" ]; then
   mkdir -p "$_TOOLS" && chmod 755 "$_TOOLS"
   # NB: the SHARED image path, not the node-local /tmp cache the GPU branch may
   # use for this session - the job lands on a different node.
-  _render run-r.sh.tmpl      "$_TOOLS/run-r-job.sh"  "run-r-job.sh" 755
+  _render run-r-job.sh.tmpl  "$_TOOLS/run-r-job.sh"  "run-r-job.sh" 755
   _render course-env.sh.tmpl "$_TOOLS/course-env.sh" "run-r-job.sh" 644
   _render README.md.tmpl     "$_TOOLS/README.md"     "run-r-job.sh" 644
   log "refreshed course job-tools: $_TOOLS"
@@ -366,13 +366,22 @@ fi
 # --- check 2: admins get a personal copy, for testing ------------------------
 # This exists for the dev team, who typically launch a course BEFORE its folder
 # is provisioned or before Grouper has propagated their access - so the branch
-# above does nothing and there would otherwise be nothing to test with. Named
-# after the sub-app because a home directory is shared across every course a
-# person is in, and overwritten each launch because it is a testing artefact,
-# never anyone's personal file.
+# above does nothing and there would otherwise be nothing to test with.
+#
+# The name carries both the sub-app and the fact that it is a test artefact,
+# because a home directory is shared across every course a person is in, and
+# because either half has to stand on its own if the file is moved or copied
+# somewhere else mid-testing. It is the production name plus two suffixes, so
+# it trims back to that name from the right:
+#
+#     run-r-job-<sub-app>-test.sh -> run-r-job-<sub-app>.sh -> run-r-job.sh
+#
+# Overwritten on every launch, because it is a testing artefact and never
+# anyone's personal file.
 if [ "<%= context.respond_to?('user_role') ? context.user_role : '' %>" = "admin" ]; then
-  _render run-r.sh.tmpl "$HOME/run-r-${_SUBAPP}.sh" "run-r-${_SUBAPP}.sh" 755 \
-    && log "wrote admin test wrapper: $HOME/run-r-${_SUBAPP}.sh"
+  _WRAPPER_TEST="run-r-job-${_SUBAPP}-test.sh"
+  _render run-r-job.sh.tmpl "$HOME/$_WRAPPER_TEST" "$_WRAPPER_TEST" 755 \
+    && log "wrote admin test wrapper: $HOME/$_WRAPPER_TEST"
 fi
 <% end %>
 
