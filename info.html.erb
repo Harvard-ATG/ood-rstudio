@@ -1,8 +1,8 @@
 <p>The app may stay in a "Queued" state for 10-15 minutes in the event that there are no compute resources already available to run your session. Please be patient as additional compute resources are allocated to your session.</p>
 
 <%#
-  Slurm-enabled courses only. Every sub-app shares this file, so the guard is
-  what keeps the note off the card for courses that have not opted in.
+  NOTE: Slurm-enabled courses only. Every sub-app shares this file, so the
+  guard is what keeps the note off the card for courses that have not opted in.
 
   defined?(context) is belt and braces: if this template is ever rendered
   without a session context, the block is skipped and the card is unchanged.
@@ -22,7 +22,9 @@
     <pre><code>cp ~/<%= canvas %>/job-tools/run-r-job.sh .
 sbatch run-r-job.sh my_script.R</code></pre>
 
-    <p>You do not have to edit the script to ask for more CPUs or time. The full instructions are in
-    <code>~/<%= canvas %>/job-tools/README.md</code>.</p>
+    <p>You do not have to edit the script to ask for more CPUs or time. The full instructions,
+    including how to request them, are in the course folder:</p>
+
+    <pre><code>cat ~/<%= canvas %>/job-tools/README.md</code></pre>
   <% end %>
 <% end %>

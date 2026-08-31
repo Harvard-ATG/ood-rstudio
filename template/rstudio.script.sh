@@ -2,12 +2,27 @@
 
 set -x
 
-# NOTE: rserver rebuilds the environment for each R session, so PATH set here
-# does NOT reach the user's R console or Terminal pane - only rserver itself.
-# Anything a session must see on PATH has to be set in the generated rsession.sh
-# wrapper (for R) or in an /etc/profile.d drop-in (for terminal shells); both are
-# done in template/script.sh.erb. This is why the Slurm client, when a sub-app
-# enables it, is not put on PATH from this file.
+# What is this for?
+#
+# This path points to the folder containing RStudio Server's own programs,
+# including `rsession`, which runs the R console, and `rpostback`.
+#
+# This PATH is for `rserver` itself. It is not the PATH a student sees in
+# RStudio. RStudio starts the R console and the Terminal separately:
+#
+#   R console  -> rsession
+#   Terminal   -> bash
+#
+# Each needs its own PATH setting. `script.sh.erb` adds Slurm commands to
+# `rsession.sh` for the R console and to `/etc/profile.d/zz-slurm.sh` for the
+# Terminal.
+#
+# To see the difference, open the RStudio Terminal and run:
+#
+#   echo $PATH
+#
+# `/usr/lib/rstudio-server/bin` will not appear there, even though it is added
+# below for `rserver`.
 export PATH=/usr/lib/rstudio-server/bin:$PATH
 
 RSERVER_ARGLIST=(
