@@ -45,14 +45,14 @@ description: |
   RStudio for **STAT 139** (Introduction to Linear Models), Canvas 170320.
 
   R comes from the course image (rocker/verse 4.5.1). Packages installed by the
-  teaching staff are already on `.libPaths()` — there is nothing to install.
+  teaching staff are already on `.libPaths()`, so there is nothing to install.
 
-  **Slurm commands work in this session** — `sbatch`, `squeue` and `sacct` in the
-  Terminal pane, and from the R console via `system()`.
+  Slurm commands work in this session: `sbatch`, `squeue` and `sacct` in the
+  Terminal pane, and from the R console with `system()`.
 
-  **To run an R script as a batch job**, copy the class script out of the
-  course folder and submit it. It runs your file with this same image and these
-  same packages, so a job produces what you see here:
+  **Running an R script as a batch job.** Copy the class script into a folder of
+  your own and submit it. It runs your file in this same image with these same
+  packages, so a job produces what you see here:
 
   ```bash
   cp ~/170320/job-tools/run-r-job.sh .
@@ -60,25 +60,24 @@ description: |
   cat stat139-<jobid>.out
   ```
 
-  **Need more CPUs, more time, or your own name on the job?** You do not have to
-  edit the script - options on the command line win over the settings in it:
+  You do not have to edit the script to ask for more. Options on the command
+  line win over the settings in it:
 
   ```bash
   sbatch -c 4 -t 02:00:00 -J hw3 run-r-job.sh my_script.R
   ```
 
-  Your session appears in `squeue -u $USER` as the `sys/dashboard` row; your
-  job is the one named `stat139`, or whatever you passed to `-J`.
+  Your job appears in `squeue -u $USER` named `stat139`, or whatever you passed
+  to `-J`. Your RStudio session is the separate `sys/dashboard` row.
 
-  Full instructions, including what to do if your copy stops working, are in
-  `~/170320/job-tools/README.md`. The copy in that folder is the class version
-  and is always current - copy it again any time to get back to a working one.
+  **Submit from a folder you own.** The course folder is read-only to you, so a
+  job started from inside it cannot write its output.
 
-  **Why not run it from the course folder?** It is read-only to you, so a job
-  submitted from inside it cannot write its output. Copy it out and run it from
-  a folder of your own.
+  Full instructions are in `~/170320/job-tools/README.md`. The copy in that
+  folder is the class version and is always current, so copying it again gets
+  you back to a working one.
 
-  The wrapper is three steps, if you would rather run them yourself:
+  **If you would rather run the steps yourself**, the wrapper does three things:
 
   ```bash
   . /shared/spack/share/spack/setup-env.sh
@@ -88,9 +87,9 @@ description: |
     /shared/apptainerImages/rstudio-base.sif Rscript my_script.R
   ```
 
-  `R_LIBS_USER` is what points R at the course packages, and running through the
-  image is what supplies an R that can load them - the compute node has its own
-  R, and packages built against the container's R will not load under it.
+  `R_LIBS_USER` points R at the course packages. Running through the image is
+  what supplies an R that can load them: the compute node has an R of its own,
+  and packages built against the container's R will not load under it.
 
 attributes:
   imagefile: rstudio-base.sif
