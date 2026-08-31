@@ -424,14 +424,16 @@ name.
 
 ## Why the wrapper is required
 
-A direct `sbatch` submission can inherit `R_LIBS_USER`, so it may find the
-course library and show the expected path in `.libPaths()`.
+The wrapper exists to control which R runs the job.
 
-That is not enough.
+The library path is not the problem. `R_LIBS_USER` is set in the session
+environment, and `sbatch` defaults to `--export=ALL`, so a direct submission
+inherits it. The job finds the course library and `.libPaths()` is correct.
 
-The compute node has its own system R at `/usr/lib64/R`. Course packages with
-compiled code are built against the R version inside the RStudio image. A job
-using the system R can therefore find a package and still fail to load it:
+The R is the problem. The compute node has its own system R at `/usr/lib64/R`.
+Course packages with compiled code are built against the R version inside the
+RStudio image. A job that runs under the system R can therefore find a package
+and still fail to load it:
 
 ```text
 Error: package or namespace load failed for 'digest' in dyn.load(...):
@@ -445,6 +447,25 @@ same image used by RStudio.
 
 > The library path tells R where the package is. The container provides an R
 > version that can load it.
+
+There is a second reason, and it is about where the job is submitted from.
+
+`R_LIBS_USER` is set by this app's session. A Terminal pane inside RStudio has
+it. Open OnDemand's own shell app does not, because that is a different app and
+nothing set it there. Both are called a terminal, so a student can follow the
+same instruction from either one and get different results, with nothing to
+explain the difference.
+
+The wrapper does not inherit the library path. It reads `R_LIB` from
+`course-env.sh`, or falls back to the value written into it, and passes that to
+the container:
+
+```bash
+apptainer exec $_BINDS --env R_LIBS_USER="$R_LIB" "$IMAGE" Rscript "$@"
+```
+
+So `sbatch run-r-job.sh my_script.R` behaves the same wherever it is submitted
+from. Only a bare `sbatch` depends on the environment it inherits.
 
 ## Troubleshooting
 
