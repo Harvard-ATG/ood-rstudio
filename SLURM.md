@@ -463,12 +463,21 @@ sets it and `sbatch` passes it on. Open OnDemand's own shell app does not,
 because that is a different app and nothing set it there.
 
 The job gets the course library either way. The wrapper does not read
-`R_LIBS_USER` from the environment. It reads `R_LIB` from `course-env.sh`, or
-falls back to the value written into it, and passes that to the container:
+`R_LIBS_USER` from the environment. It builds the value itself and passes it to
+the container:
 
 ```bash
-apptainer exec $_BINDS --env R_LIBS_USER="$R_LIB" "$IMAGE" Rscript "$@"
+_R_LIBS="$HOME/R/%p-library/%v:$R_LIB"
+apptainer exec $_BINDS --env R_LIBS_USER="$_R_LIBS" "$IMAGE" Rscript "$@"
 ```
+
+**Both libraries, in the order the RStudio session uses them** — the user's own
+first, the course library second. Passing only the course library would replace
+the user's rather than add to it, and a package a student installed themselves
+would then load in the console and fail in their job. Nothing would explain the
+difference: the path is simply present in one `.libPaths()` and absent from the
+other. R expands `%p` and `%v` itself, so the value stays correct across image
+upgrades, and R drops a path that does not exist without complaining.
 
 So `sbatch run-r-job.sh my_script.R` finds the course packages from the RStudio
 Terminal, from the shell app, or from anywhere else. Only a bare `sbatch`
