@@ -83,6 +83,20 @@ sed 's/^ \{2\}//' > "$WORKING_DIR/rsession.sh" << EOL
   env
 
   echo "Launching rsession..."
+  # The --r-libs-user flag is REQUIRED. Removing it was tried and reverted.
+  #
+  # R_LIBS_USER is exported earlier in this file and it does reach this wrapper -
+  # the env dump above shows it. But rserver starts rsession as a further
+  # process and does not pass it down, the same way it does not pass down PATH.
+  # Without the flag, R falls back to computing its own default user library and
+  # the course library disappears from .libPaths() entirely:
+  #
+  #   [1] /shared/home/<netid>/R/x86_64-pc-linux-gnu-library/4.5   <- R's default
+  #   [2] /usr/local/lib/R/site-library
+  #   [3] /usr/local/lib/R/library                                 <- no course lib
+  #
+  # The tell is that [1] is exactly what R computes from $HOME on its own, so a
+  # home library in the list is not evidence the variable arrived.
   exec rsession --r-libs-user "${R_LIBS_USER}" "\${@}"
 EOL
 )
