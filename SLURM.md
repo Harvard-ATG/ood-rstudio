@@ -406,6 +406,24 @@ person can be both staff and an admin. The admin branch is not a nicety: the
 dev team usually launches a course before its folder exists or before Grouper
 has propagated, so without it there would be nothing to test with.
 
+**Every staff launch rewrites the files, not just the first.** The image and the
+course library path live on the sub-app form. If either changes, a copy written
+once is now wrong and nobody finds out. Rewriting on every staff launch means the
+files follow the form on their own: a wrong file, or a deleted one, is one launch
+away from being right again.
+
+That has a consequence for teaching staff, and it is the opposite of what a file
+in a folder you own usually implies. **A hand edit does not survive.** Staff can
+write these files, but the next staff launch overwrites them. The supported way
+for a staff member to change what a job does is the same as for a student: copy
+the wrapper, edit the copy.
+
+> **Nothing provisions the course folder except a staff launch.** If no member of
+> the teaching staff ever opens the app, `job-tools/` does not exist, and students
+> find nothing to copy. No error is raised and nothing reports it — the first sign
+> is a student asking where the script is. Put "launch the app once" in the course
+> handoff.
+
 ### Student workflow
 
 Students should work in a directory they own:
