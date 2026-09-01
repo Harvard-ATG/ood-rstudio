@@ -1,0 +1,121 @@
+<%-
+  _rlib   = context.respond_to?('r_libpath') ? context.r_libpath.to_s : ''
+  _course = _rlib.sub(%r{/R/.*\z}, '')
+  _tools  = _course.empty? ? '' : "#{_course}/job-tools"
+  _image  = "/shared/apptainerImages/#{context.imagefile}"
+-%>
+# Running R batch jobs
+
+This folder contains the course's supported tools for running R scripts as Slurm
+batch jobs.
+
+The wrapper runs your script in the same Apptainer image used by the course
+RStudio app. That means your batch job uses the same version of R and can use
+the same course package library as your interactive RStudio session.
+
+## Submit an R script
+
+Work in a directory you own. Do not edit the files in this course folder.
+
+Copy the wrapper:
+
+```bash
+cp <%= _tools %>/run-r-job.sh .
+```
+
+Then submit an R script:
+
+```bash
+sbatch run-r-job.sh my_script.R
+```
+
+For example, if your script is named `hw3-bootstrap.R`:
+
+```bash
+sbatch run-r-job.sh hw3-bootstrap.R
+```
+
+## Request different resources
+
+The wrapper includes default Slurm settings. You can override them when you
+submit the job.
+
+For example, request four CPUs, a two-hour time limit, and the job name `hw3`:
+
+```bash
+sbatch -c 4 -t 02:00:00 -J hw3 run-r-job.sh hw3-bootstrap.R
+```
+
+Put Slurm options **before** the wrapper name:
+
+```bash
+# Correct
+sbatch -c 4 -t 02:00:00 run-r-job.sh my_script.R
+```
+
+```bash
+# Incorrect: these are passed to the wrapper instead of Slurm
+sbatch run-r-job.sh my_script.R -c 4 -t 02:00:00
+```
+
+## Pass arguments to your R script
+
+Anything after the R script name is passed to that script.
+
+For example:
+
+```bash
+sbatch run-r-job.sh analysis.R input-data.csv 10000
+```
+
+In R, retrieve command-line arguments with:
+
+```r
+args <- commandArgs(trailingOnly = TRUE)
+```
+
+## Check your job
+
+Show your jobs:
+
+```bash
+squeue -u "$USER"
+```
+
+Show completed-job information:
+
+```bash
+sacct -u "$USER"
+```
+
+Cancel a job:
+
+```bash
+scancel <job-id>
+```
+
+The wrapper writes output to a file named:
+
+```text
+slurm-<job-id>.out
+```
+
+in the directory from which you submitted the job. Submit from a directory you
+own: this course folder is read-only to you, so a job started from inside it
+cannot write its output.
+
+## Do not edit the shared files
+
+This folder contains the maintained course copies:
+
+| File | Purpose |
+|---|---|
+| `run-r-job.sh` | Runs an R script as a Slurm job in the course R environment. |
+| `course-env.sh` | Defines the current image and course R-library settings. |
+| `README.md` | This file. |
+
+Copy `run-r-job.sh` into your own working directory before submitting a job. Do not
+edit `course-env.sh`.
+
+The wrapper reads the current course settings when it runs, so a copy you made
+earlier will continue to use the current course image and package library.

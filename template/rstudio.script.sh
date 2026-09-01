@@ -2,6 +2,27 @@
 
 set -x
 
+# What is this for?
+#
+# This path points to the folder containing RStudio Server's own programs,
+# including `rsession`, which runs the R console, and `rpostback`.
+#
+# This PATH is for `rserver` itself. It is not the PATH a student sees in
+# RStudio. RStudio starts the R console and the Terminal separately:
+#
+#   R console  -> rsession
+#   Terminal   -> bash
+#
+# Each needs its own PATH setting. `script.sh.erb` adds Slurm commands to
+# `rsession.sh` for the R console and to `/etc/profile.d/zz-slurm.sh` for the
+# Terminal.
+#
+# To see the difference, open the RStudio Terminal and run:
+#
+#   echo $PATH
+#
+# `/usr/lib/rstudio-server/bin` will not appear there, even though it is added
+# below for `rserver`.
 export PATH=/usr/lib/rstudio-server/bin:$PATH
 
 RSERVER_ARGLIST=(

@@ -1,1 +1,30 @@
 <p>The app may stay in a "Queued" state for 10-15 minutes in the event that there are no compute resources already available to run your session. Please be patient as additional compute resources are allocated to your session.</p>
+
+<%#
+  NOTE: Slurm-enabled courses only. Every sub-app shares this file, so the
+  guard is what keeps the note off the card for courses that have not opted in.
+
+  defined?(context) is belt and braces: if this template is ever rendered
+  without a session context, the block is skipped and the card is unchanged.
+
+  The course folder is derived from r_libpath rather than carried as its own
+  attribute - r_libpath is <course folder>/R/<arch>-library/<version>, so the
+  part before /R/ is the folder and its last segment is the Canvas id.
+-%>
+<% if defined?(context) && context.respond_to?(:slurm_enabled) && context.slurm_enabled.to_s == "true" %>
+  <% course  = context.respond_to?(:r_libpath) ? context.r_libpath.to_s[%r{\A(.*?)/R/}, 1] : nil %>
+  <% canvas  = course.to_s.split("/").last %>
+  <% if !canvas.to_s.empty? %>
+    <p><strong>Running an R script as a batch job.</strong> Copy the class script into a folder of
+    your own and submit it. It runs your file with this same image and the same packages, so a job
+    produces what you see in the console:</p>
+
+    <pre><code>cp ~/<%= canvas %>/job-tools/run-r-job.sh .
+sbatch run-r-job.sh my_script.R</code></pre>
+
+    <p>You do not have to edit the script to ask for more CPUs or time. The full instructions,
+    including how to request them, are in the course folder:</p>
+
+    <pre><code>cat ~/<%= canvas %>/job-tools/README.md</code></pre>
+  <% end %>
+<% end %>

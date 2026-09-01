@@ -1,0 +1,129 @@
+<%-
+# Specify admin groups by the full name of the group in the production HKey environment.
+adminGroups = [
+  "ondemand-admins-1025174" # HUIT OOD admin group
+]
+# Canvas course ID: canvas.harvard.edu/courses/170320
+enabledGroups = [
+  "170320" # STAT 139 - Introduction to Linear Models (Fall 2026)
+]
+
+def arrays_have_common_element(array1, array2)
+  !(array1 & array2).empty?
+end
+
+userGroups = OodSupport::User.new.groups.sort_by(&:id).map(&:name)
+
+# Three roles, all separable from the group names we already have. They decide
+# who gets a personal test copy of the batch wrapper (admins only) - the class
+# copy in the course folder is gated on write access instead, since that is what
+# actually matters there.
+#
+# NOTE the staff regex needs its own pattern: canvas170320-staff-1168564 does
+# NOT match /^canvas(\d+)-\d+/, because "staff" is not \d+.
+userCanvasGroups = userGroups.flat_map{ |str| str.scan(/^canvas(\d+)-\d+/) }.flatten
+userStaffGroups  = userGroups.flat_map{ |str| str.scan(/^canvas(\d+)-staff-\d+/) }.flatten
+
+if arrays_have_common_element(userGroups, adminGroups)
+  cluster="*"
+  role="admin"
+elsif arrays_have_common_element(userStaffGroups, enabledGroups)
+  cluster="*"
+  role="staff"
+elsif arrays_have_common_element(userCanvasGroups, enabledGroups)
+  cluster="*"
+  role="student"
+else
+  cluster="disable_this_app"
+  role="none"
+end
+-%>
+---
+cluster: "<%= cluster %>"
+title: "RStudio - STAT 139"
+description: |
+  RStudio for **STAT 139** (Introduction to Linear Models), Canvas 170320.
+
+  R comes from the course image (rocker/verse 4.5.1). Packages installed by the
+  teaching staff are already on `.libPaths()`, so there is nothing to install.
+
+  Slurm commands work in this session: `sbatch`, `squeue` and `sacct` in the
+  Terminal pane, and from the R console with `system()`.
+
+  **Running an R script as a batch job.** Copy the class script into a folder of
+  your own and submit it. It runs your file in this same image with these same
+  packages, so a job produces what you see here:
+
+  ```bash
+  cp ~/170320/job-tools/run-r-job.sh .
+  sbatch run-r-job.sh my_script.R
+  cat stat139-<jobid>.out
+  ```
+
+  You do not have to edit the script to ask for more. Options on the command
+  line win over the settings in it:
+
+  ```bash
+  sbatch -c 4 -t 02:00:00 -J hw3 run-r-job.sh my_script.R
+  ```
+
+  Your job appears in `squeue -u $USER` named `stat139`, or whatever you passed
+  to `-J`. Your RStudio session is the separate `sys/dashboard` row.
+
+  **Submit from a folder you own.** The course folder is read-only to you, so a
+  job started from inside it cannot write its output.
+
+  Full instructions are in `~/170320/job-tools/README.md`. The copy in that
+  folder is the class version and is always current, so copying it again gets
+  you back to a working one.
+
+  **If you would rather run the steps yourself**, the wrapper does three things:
+
+  ```bash
+  . /shared/spack/share/spack/setup-env.sh
+  spack env activate apptainer
+  apptainer exec -B /shared/courseSharedFolders \
+    --env R_LIBS_USER=/shared/courseSharedFolders/170320outer/170320/R/x86_64-pc-linux-gnu-library/4.5 \
+    /shared/apptainerImages/rstudio-base.sif Rscript my_script.R
+  ```
+
+  `R_LIBS_USER` points R at the course packages. Running through the image is
+  what supplies an R that can load them: the compute node has an R of its own,
+  and packages built against the container's R will not load under it.
+
+attributes:
+  imagefile: rstudio-base.sif
+
+  # Opt in to the Slurm client injection in template/script.sh.erb, which lets
+  # sbatch/squeue/sacct work from inside this app's container. Two requirements,
+  # both easy to get wrong:
+  #   - the value must be the string "true"
+  #   - slurm_enabled MUST also appear under form: below. OOD only passes
+  #     form:-listed attributes into the template context, so leaving it out
+  #     makes the injection silently do nothing. A hard-coded value listed under
+  #     form: is still hidden from the user in the dashboard.
+  slurm_enabled: "true"
+
+  # Course-managed R package library (created by the teaching staff)
+  r_libpath: "/shared/courseSharedFolders/170320outer/170320/R/x86_64-pc-linux-gnu-library/4.5"
+
+  # Computed above. Decides only whether this session writes a personal test
+  # copy of the wrapper into $HOME (admins). MUST also appear under form: below
+  # - OOD passes only form:-listed attributes into the template context, so
+  # leaving it out makes the guard silently evaluate false.
+  user_role: "<%= role %>"
+
+  custom_num_cores:
+    widget: "number_field"
+    label: "Number of CPUs"
+    value: 1
+    min: 1
+    max: 4
+    step: 1
+form:
+  - custom_num_cores
+  - bc_num_hours
+  - imagefile
+  - r_libpath
+  - slurm_enabled
+  - user_role

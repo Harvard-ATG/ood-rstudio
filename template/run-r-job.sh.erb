@@ -1,0 +1,125 @@
+<%-
+  _rlib   = context.respond_to?('r_libpath') ? context.r_libpath.to_s : ''
+  _course = _rlib.sub(%r{/R/.*\z}, '')
+  _tools  = _course.empty? ? '' : "#{_course}/job-tools"
+  _image  = "/shared/apptainerImages/#{context.imagefile}"
+-%>
+#!/bin/bash
+#
+# The settings below belong to THIS BATCH JOB, not to your RStudio session. The
+# job is scheduled on its own, so the CPUs and time you picked when you launched
+# RStudio have no effect here. Asking for more below does not make RStudio
+# bigger, and a bigger RStudio does not make this job bigger.
+#
+#SBATCH --partition=general
+#SBATCH --cpus-per-task=1
+#SBATCH --time=00:15:00
+#
+# Run an R script on the cluster using the SAME container image and the SAME
+# package library as your RStudio session, so a job produces what you see there.
+#
+#     sbatch run-r-job.sh my_script.R
+#
+# NEED MORE, OR YOUR OWN NAME ON THE JOB? You do not have to edit anything -
+# options on the command line beat the settings above:
+#
+#     sbatch -c 4 -t 02:00:00 -J hw3 run-r-job.sh my_script.R
+#
+# ORDER MATTERS. Options go BEFORE the script name. Put them after it and they
+# are passed to your R script instead - the job still runs and the option is
+# quietly ignored, which is a hard mistake to spot.
+#
+# Check on it:      squeue -u $USER
+# Read the output:  cat slurm-<jobid>.out     (lands where you submitted from,
+#                                              so submit from your own folder)
+#
+# WANT TO CHANGE WHAT IT DOES? Copy it first. Your copy is yours, and nothing
+# will ever overwrite it:
+#
+#     cp run-r-job.sh my-run.sh
+#
+# ---------------------------------------------------------------------------
+# The image and library below are read from the course folder at RUN time, not
+# frozen into this file. That is what lets a copy taken today still use the
+# right image next month: change the course, and every copy follows.
+#
+# The two assignments are a fallback for the case where that file does not
+# exist yet - a course being tested before its folder is provisioned.
+IMAGE=<%= _image %>
+R_LIB=<%= _rlib %>
+COURSE_ENV=<%= _tools %>/course-env.sh
+[ -r "$COURSE_ENV" ] && . "$COURSE_ENV"
+: "${IMAGE:?no IMAGE - course-env.sh is missing and no fallback was baked in}"
+: "${R_LIB:?no R_LIB - course-env.sh is missing and no fallback was baked in}"
+
+# Spack is only here to provide the `apptainer` command.
+. /shared/spack/share/spack/setup-env.sh
+spack env activate apptainer
+
+# sbatch options must come BEFORE the script name - anything after it is handed
+# to your R script instead. That mistake is SILENT: the job runs, the flag does
+# nothing, and the output looks entirely normal (observed with a stray
+# --job-name, job 820). So say something rather than let it pass. This is a
+# note, not a refusal - passing real arguments to an R script is legitimate.
+for _arg in "${@:2}"; do
+  case "$_arg" in
+    -*)
+      echo "NOTE: '$_arg' was passed to your R script, not to sbatch." >&2
+      echo "      sbatch options go BEFORE the script name:" >&2
+      echo "        sbatch -J myname -c 4 $(basename "$0") $1" >&2
+      break ;;
+  esac
+done
+
+echo "Running $1 on $(hostname)"
+
+# -B makes a host path visible at the same path inside the container.
+#
+#   /shared/courseSharedFolders - so the course library and course files exist
+#   $HOME                       - so YOUR files exist
+#
+# The home bind is not redundant. Apptainer does not mount the real home here:
+# without this it fabricates an EMPTY directory at $HOME, so anything you refer
+# to by an absolute path into your own home is silently missing. That breaks
+# ~/<course>/script.R (the course symlink lives in home, and its target being
+# bound does not help when the link itself is absent), and it hides your own
+# package library at $HOME/R/... from every batch job. Relative filenames work
+# either way, because apptainer binds the working directory - which is why this
+# went unnoticed until someone passed a full path.
+#
+# WHY APPTAINER GETS IT WRONG (worth knowing before "fixing" this): the compute
+# nodes' directory reports home directories as /home/<netid>, while the portal
+# reports /shared/home/<netid>. Apptainer works partly from the passwd entry, so
+# on a compute node it is looking for a home that does not exist there and makes
+# an empty one. An explicit bind does not care what the passwd entry claims,
+# which is why this is a bind and not a --home flag.
+#
+# This is NOT specific to this course or this app. Any apptainer-based app doing
+# a plain `apptainer exec` on these nodes has the same blind spot, and the
+# symptom is silent: relative paths work, absolute ones vanish.
+#
+# R_LIBS_USER tells R where to look for packages. The image supplies R itself -
+# which is the point, because the compute node's own R cannot load packages
+# compiled against the container's R.
+_BINDS="-B /shared/courseSharedFolders"
+
+# Guarded, not unconditional: an unset or missing $HOME would expand to `-B `
+# with nothing after it, which apptainer rejects as a malformed argument - so
+# the job would fail to start at all rather than merely lose the home bind.
+[ -n "$HOME" ] && [ -d "$HOME" ] && _BINDS="$_BINDS -B $HOME"
+
+# Two libraries, in the same order the RStudio session uses: the user's own
+# first, the course library second. R expands %p to the platform and %v to the R
+# version, so this stays correct across image upgrades without being told.
+#
+# Passing only the course library here would REPLACE the user's own rather than
+# add to it. A package a student installed themselves would then load in the
+# RStudio console and fail in their job, with nothing to explain the difference:
+# the library is simply missing from .libPaths() in the job and present in the
+# console. R drops a path that does not exist and says nothing, so a user with
+# no personal library loses nothing by this.
+_R_LIBS="$HOME/R/%p-library/%v:$R_LIB"
+
+apptainer exec $_BINDS \
+  --env R_LIBS_USER="$_R_LIBS" \
+  "$IMAGE" Rscript "$@"
