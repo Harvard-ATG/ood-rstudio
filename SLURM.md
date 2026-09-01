@@ -324,7 +324,7 @@ them. The app therefore generates course-facing job tools in:
 
 The layout is deliberately course-agnostic: same folder name, same file names,
 same instruction to a student, whatever the course and whatever the language. A
-Python course would carry `run-py-job.sh`, generated from `run-py-job.sh.tmpl`.
+Python course would carry `run-py-job.sh`, generated from `run-py-job.sh.erb`.
 Only the values inside differ.
 
 The wrapper contains the mechanism. `course-env.sh` contains the values:
@@ -334,15 +334,23 @@ IMAGE=/shared/apptainerImages/<image>.sif
 R_LIB=<course shared folder>/R/x86_64-pc-linux-gnu-library/<R version>
 ```
 
-The wrapper reads `course-env.sh` at runtime:
+The three course files are ERB templates under `template/`, so Open OnDemand
+renders them at session start with the rest of the app and stages them into the
+session directory. `script.sh` then copies them into the course folder. Nothing
+does its own substitution.
 
-```bash
-IMAGE=@IMAGE@
-R_LIB=@RLIBS@
-COURSE_ENV=@COURSE_ENV@
+```erb
+<%- _image = "/shared/apptainerImages/#{context.imagefile}" -%>
+IMAGE=<%= _image %>
+R_LIB=<%= _rlib %>
+COURSE_ENV=<%= _tools %>/course-env.sh
 
 [ -r "$COURSE_ENV" ] && . "$COURSE_ENV"
 ```
+
+The course folder is derived from `r_libpath` rather than carried as its own
+attribute: `r_libpath` is `<course folder>/R/<arch>-library/<version>`, so the
+part before `/R/` is the folder.
 
 This design lets a student copy `run-r-job.sh` once while still receiving later
 updates to the image or course library path. A copy taken in week 2 uses week

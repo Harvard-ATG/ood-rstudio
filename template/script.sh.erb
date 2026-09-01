@@ -334,17 +334,15 @@ _TOOLS="${_COURSE_DIR:+$_COURSE_DIR/job-tools}"
 # directory and moved into place, because rename is atomic within a filesystem:
 # two staff launching at once, or a student copying mid-write, must never see a
 # half-written script.
-_render() {
-  [ -f "${JOBROOT}/$1" ] || { log "template missing: $1"; return 1; }
+_install() {
+  # $1 staged file (OOD already rendered it), $2 destination, $3 mode.
+  # Write to a temp file in the destination directory and mv into place: two
+  # staff launching at once, or a student copying mid-write, must never see a
+  # half-written script.
+  [ -f "${JOBROOT}/$1" ] || { log "staged file missing: $1"; return 1; }
   _tmp="$2.$$.tmp"
-  sed -e "s|@APP@|${_SUBAPP}|g" \
-      -e "s|@WRAPPER@|$3|g" \
-      -e "s|@COURSEPATH@|${_TOOLS}|g" \
-      -e "s|@IMAGE@|${apptainer_image_dir}/${rstudio_container}|g" \
-      -e "s|@RLIBS@|${_RLIBS}|g" \
-      -e "s|@COURSE_ENV@|${_TOOLS}/course-env.sh|g" \
-      "${JOBROOT}/$1" > "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
-  chmod "$4" "$_tmp" && mv -f "$_tmp" "$2"
+  cp "${JOBROOT}/$1" "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+  chmod "$3" "$_tmp" && mv -f "$_tmp" "$2"
 }
 
 # --- check 1: staff and faculty refresh the class copy ----------------------
@@ -355,9 +353,9 @@ if [ -n "$_TOOLS" ] && [ -d "$_COURSE_DIR" ] && [ -w "$_COURSE_DIR" ]; then
   mkdir -p "$_TOOLS" && chmod 755 "$_TOOLS"
   # NB: the SHARED image path, not the node-local /tmp cache the GPU branch may
   # use for this session - the job lands on a different node.
-  _render run-r-job.sh.tmpl  "$_TOOLS/run-r-job.sh"  "run-r-job.sh" 755
-  _render course-env.sh.tmpl "$_TOOLS/course-env.sh" "run-r-job.sh" 644
-  _render README.md.tmpl     "$_TOOLS/README.md"     "run-r-job.sh" 644
+  _install run-r-job.sh  "$_TOOLS/run-r-job.sh"  755
+  _install course-env.sh "$_TOOLS/course-env.sh" 644
+  _install README.md     "$_TOOLS/README.md"     644
   log "refreshed course job-tools: $_TOOLS"
 else
   log "not refreshing course job-tools (not writable by $(id -un)): ${_TOOLS:-unset}"
@@ -380,7 +378,7 @@ fi
 # anyone's personal file.
 if [ "<%= context.respond_to?('user_role') ? context.user_role : '' %>" = "admin" ]; then
   _WRAPPER_TEST="run-r-job-${_SUBAPP}-test.sh"
-  _render run-r-job.sh.tmpl "$HOME/$_WRAPPER_TEST" "$_WRAPPER_TEST" 755 \
+  _install run-r-job.sh "$HOME/$_WRAPPER_TEST" 755 \
     && log "wrote admin test wrapper: $HOME/$_WRAPPER_TEST"
 fi
 <% end %>

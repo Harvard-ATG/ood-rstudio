@@ -1,39 +1,42 @@
+<%-
+  _rlib   = context.respond_to?('r_libpath') ? context.r_libpath.to_s : ''
+  _course = _rlib.sub(%r{/R/.*\z}, '')
+  _tools  = _course.empty? ? '' : "#{_course}/job-tools"
+  _image  = "/shared/apptainerImages/#{context.imagefile}"
+-%>
 #!/bin/bash
-# generated-for: @APP@
 #
 # The settings below belong to THIS BATCH JOB, not to your RStudio session. The
 # job is scheduled on its own, so the CPUs and time you picked when you launched
 # RStudio have no effect here. Asking for more below does not make RStudio
 # bigger, and a bigger RStudio does not make this job bigger.
 #
-#SBATCH --job-name=@APP@
 #SBATCH --partition=general
 #SBATCH --cpus-per-task=1
 #SBATCH --time=00:15:00
-#SBATCH --output=@APP@-%j.out
 #
 # Run an R script on the cluster using the SAME container image and the SAME
 # package library as your RStudio session, so a job produces what you see there.
 #
-#     sbatch @WRAPPER@ my_script.R
+#     sbatch run-r-job.sh my_script.R
 #
 # NEED MORE, OR YOUR OWN NAME ON THE JOB? You do not have to edit anything -
 # options on the command line beat the settings above:
 #
-#     sbatch -c 4 -t 02:00:00 -J hw3 @WRAPPER@ my_script.R
+#     sbatch -c 4 -t 02:00:00 -J hw3 run-r-job.sh my_script.R
 #
 # ORDER MATTERS. Options go BEFORE the script name. Put them after it and they
 # are passed to your R script instead - the job still runs and the option is
 # quietly ignored, which is a hard mistake to spot.
 #
 # Check on it:      squeue -u $USER
-# Read the output:  cat @APP@-<jobid>.out     (lands where you submitted from,
+# Read the output:  cat slurm-<jobid>.out     (lands where you submitted from,
 #                                              so submit from your own folder)
 #
 # WANT TO CHANGE WHAT IT DOES? Copy it first. Your copy is yours, and nothing
 # will ever overwrite it:
 #
-#     cp @WRAPPER@ my-run.sh
+#     cp run-r-job.sh my-run.sh
 #
 # ---------------------------------------------------------------------------
 # The image and library below are read from the course folder at RUN time, not
@@ -42,9 +45,9 @@
 #
 # The two assignments are a fallback for the case where that file does not
 # exist yet - a course being tested before its folder is provisioned.
-IMAGE=@IMAGE@
-R_LIB=@RLIBS@
-COURSE_ENV=@COURSE_ENV@
+IMAGE=<%= _image %>
+R_LIB=<%= _rlib %>
+COURSE_ENV=<%= _tools %>/course-env.sh
 [ -r "$COURSE_ENV" ] && . "$COURSE_ENV"
 : "${IMAGE:?no IMAGE - course-env.sh is missing and no fallback was baked in}"
 : "${R_LIB:?no R_LIB - course-env.sh is missing and no fallback was baked in}"
