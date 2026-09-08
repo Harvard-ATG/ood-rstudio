@@ -6,37 +6,66 @@
 -%>
 #!/bin/bash
 #
-# The settings below belong to THIS BATCH JOB, not to your RStudio session. The
-# job is scheduled on its own, so the CPUs and time you picked when you launched
-# RStudio have no effect here. Asking for more below does not make RStudio
-# bigger, and a bigger RStudio does not make this job bigger.
+# ===========================================================================
+#  THIS FILE IS REPLACED EVERY TIME YOU OPEN RSTUDIO.
+#
+#  It belongs to the course, not to you. Every launch puts a fresh copy here,
+#  so any change you make to THIS file is lost the next time you open RStudio.
+#
+#  TO KEEP YOUR CHANGES, give the file your own name first:
+#
+#      cp run-r-job.sh run-my-job.sh
+#
+#  Then edit run-my-job.sh. Nothing will ever touch it. Only the file named
+#  run-r-job.sh is replaced - anything else in this folder is left alone.
+#
+#  Broken it? Open RStudio again, or copy it again. It comes back correct.
+# ===========================================================================
+#
+# WHAT IT DOES
+#
+# Runs one R script on the cluster, in the same container image and with the
+# same packages as your RStudio session - so a job produces what you see in
+# the console.
+#
+# HOW TO RUN A JOB
+#
+# Work in a folder you own. Then:
+#
+#     sbatch run-my-job.sh hw3.R
+#
+# Your output lands in the folder you submitted from:
+#
+#     squeue -u $USER              is it still running?
+#     cat slurm-<jobid>.out        what did it print?
+#
+# Submit from a folder of your own. The course folder is read-only to you, so
+# a job started from inside it cannot write its output anywhere.
+#
+# NEED MORE CPUS OR TIME?
+#
+# You do not have to edit anything. Options on the command line beat the
+# settings below:
+#
+#     sbatch -c 4 -t 02:00:00 -J hw3 run-my-job.sh hw3.R
+#
+#     -c   how many CPUs
+#     -t   how long, as HH:MM:SS
+#     -J   a name of your own, so you can find it in squeue
+#
+# ORDER MATTERS. Options go BEFORE the script name. Put them after and they
+# are handed to your R script instead: the job still runs, the option does
+# nothing, and nothing tells you.
+#
+# THE SETTINGS BELOW ARE FOR THIS JOB, NOT YOUR SESSION
+#
+# This job is scheduled on its own. The CPUs and time you picked when you
+# launched RStudio have no effect here, and asking for more here does not
+# make RStudio bigger.
 #
 #SBATCH --partition=general
 #SBATCH --cpus-per-task=1
 #SBATCH --time=00:15:00
-#
-# Run an R script on the cluster using the SAME container image and the SAME
-# package library as your RStudio session, so a job produces what you see there.
-#
-#     sbatch run-r-job.sh my_script.R
-#
-# NEED MORE, OR YOUR OWN NAME ON THE JOB? You do not have to edit anything -
-# options on the command line beat the settings above:
-#
-#     sbatch -c 4 -t 02:00:00 -J hw3 run-r-job.sh my_script.R
-#
-# ORDER MATTERS. Options go BEFORE the script name. Put them after it and they
-# are passed to your R script instead - the job still runs and the option is
-# quietly ignored, which is a hard mistake to spot.
-#
-# Check on it:      squeue -u $USER
-# Read the output:  cat slurm-<jobid>.out     (lands where you submitted from,
-#                                              so submit from your own folder)
-#
-# WANT TO CHANGE WHAT IT DOES? Copy it first. Your copy is yours, and nothing
-# will ever overwrite it:
-#
-#     cp run-r-job.sh my-run.sh
 #
 # ---------------------------------------------------------------------------
 # The image and library below are read from the course folder at RUN time, not
