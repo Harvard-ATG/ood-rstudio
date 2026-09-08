@@ -15,9 +15,10 @@ end
 userGroups = OodSupport::User.new.groups.sort_by(&:id).map(&:name)
 
 # Three roles, all separable from the group names we already have. They decide
-# who gets a personal test copy of the batch wrapper (admins only) - the class
-# copy in the course folder is gated on write access instead, since that is what
-# actually matters there.
+# only whether this app appears at all: admins always, staff and enrolled
+# students for this course, nobody else. Nothing downstream branches on the
+# role any more - the job tools go into every user's own home, so there is no
+# staff copy, no student copy and no admin test copy to tell apart.
 #
 # NOTE the staff regex needs its own pattern: canvas170320-staff-1168564 does
 # NOT match /^canvas(\d+)-\d+/, because "staff" is not \d+.
@@ -50,21 +51,23 @@ description: |
   Slurm commands work in this session: `sbatch`, `squeue` and `sacct` in the
   Terminal pane, and from the R console with `system()`.
 
-  **Running an R script as a batch job.** Copy the class script into a folder of
-  your own and submit it. It runs your file in this same image with these same
-  packages, so a job produces what you see here:
+  **Running an R script as a batch job.** The wrapper is already in your home
+  directory — `~/stat139-job-tools/` — and is refreshed every time you launch.
+  From the folder your script is in:
 
   ```bash
-  cp ~/170320/job-tools/run-r-job.sh .
-  sbatch run-r-job.sh my_script.R
+  sbatch ~/stat139-job-tools/run-r-job.sh my_script.R
   cat stat139-<jobid>.out
   ```
 
-  You do not have to edit the script to ask for more. Options on the command
-  line win over the settings in it:
+  It runs your file in this same image with these same packages, so a job
+  produces what you see here. You do not have to copy or edit anything first.
+
+  Options on the command line win over the settings in the script, so ask for
+  more without editing it:
 
   ```bash
-  sbatch -c 4 -t 02:00:00 -J hw3 run-r-job.sh my_script.R
+  sbatch -c 4 -t 02:00:00 -J hw3 ~/stat139-job-tools/run-r-job.sh my_script.R
   ```
 
   Your job appears in `squeue -u $USER` named `stat139`, or whatever you passed
@@ -73,9 +76,9 @@ description: |
   **Submit from a folder you own.** The course folder is read-only to you, so a
   job started from inside it cannot write its output.
 
-  Full instructions are in `~/170320/job-tools/README.md`. The copy in that
-  folder is the class version and is always current, so copying it again gets
-  you back to a working one.
+  Full instructions are in `~/stat139-job-tools/README.md`. That folder is
+  refreshed on every launch, so opening RStudio again always gets you back to a
+  working copy.
 
   **If you would rather run the steps yourself**, the wrapper does three things:
 
@@ -107,11 +110,18 @@ attributes:
   # Course-managed R package library (created by the teaching staff)
   r_libpath: "/shared/courseSharedFolders/170320outer/170320/R/x86_64-pc-linux-gnu-library/4.5"
 
-  # Computed above. Decides only whether this session writes a personal test
-  # copy of the wrapper into $HOME (admins). MUST also appear under form: below
-  # - OOD passes only form:-listed attributes into the template context, so
-  # leaving it out makes the guard silently evaluate false.
-  user_role: "<%= role %>"
+  # Names the per-course folder of job tools in each user's home:
+  # ~/stat139-job-tools/. Carried as its own attribute rather than derived from
+  # r_libpath, because that would give the Canvas id - and ~/170320 is already
+  # taken by the symlink to the read-only course folder.
+  #
+  # MUST also appear under form: below. OOD passes only form:-listed attributes
+  # into the template context, so leaving it out makes every path fall back to
+  # the generic "course" name.
+  #
+  # Also used for the job name and the output file, so a student sees
+  # stat139-<jobid>.out rather than slurm-<jobid>.out.
+  course_slug: "stat139"
 
   custom_num_cores:
     widget: "number_field"
@@ -126,4 +136,4 @@ form:
   - imagefile
   - r_libpath
   - slurm_enabled
-  - user_role
+  - course_slug

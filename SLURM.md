@@ -34,9 +34,15 @@ local/<course>.yml.erb
 | `slurm_enabled: "true"` | Enables the Slurm integration |
 | `imagefile` | Selects the RStudio image and therefore the R version used in batch jobs |
 | `r_libpath` | Selects the course-managed R package library |
+| `course_slug` | Names the job-tools folder in each user's home, the Slurm job, and the output file |
 
 `imagefile` and `r_libpath` may already exist for a course using a shared R
-library. `slurm_enabled` is the Slurm-specific switch.
+library. `slurm_enabled` and `course_slug` are the Slurm-specific ones.
+
+`course_slug` is a short course name in the same style as the sub-app file —
+`stat139` for `local/stat139.yml.erb`. It produces `~/stat139-job-tools/`, a job
+named `stat139`, and output in `stat139-<jobid>.out`. Leave it out and everything
+falls back to the sub-app file name, which is usually the same thing.
 
 > **Important:** List these values under both `attributes:` and `form:`. Open
 > OnDemand passes only `form:`-listed values into `context`. If an attribute is
@@ -307,63 +313,111 @@ A batch job must:
 3. set the course R package library inside that image.
 
 Two of those three values live on the sub-app form, where no student can see
-them. The app therefore generates course-facing job tools in:
+them. The app therefore generates job tools into each user's own home directory:
 
 ```text
-<course shared folder>/job-tools/
+~/<course-slug>-job-tools/           e.g. ~/stat139-job-tools/
 ├── run-r-job.sh
-├── course-env.sh
 └── README.md
 ```
 
 | File | Purpose |
 |---|---|
 | `run-r-job.sh` | Wrapper that starts Apptainer and runs `Rscript` |
-| `course-env.sh` | Current course image and R library values |
 | `README.md` | Student-facing instructions |
 
-The layout is deliberately course-agnostic: same folder name, same file names,
-same instruction to a student, whatever the course and whatever the language. A
-Python course would carry `run-py-job.sh`, generated from `run-py-job.sh.erb`.
-Only the values inside differ.
+`<course-slug>` comes from the `course_slug` attribute on the sub-app form. It is
+carried rather than derived: deriving it from `r_libpath` would give the Canvas
+id, and `~/<canvas-id>` is already taken by the symlink to the read-only course
+folder — so `mkdir -p ~/170320/job-tools` fails.
 
-The wrapper contains the mechanism. `course-env.sh` contains the values:
+The folder is flat rather than `~/<course-slug>/job-tools/`. A home directory is
+shared by every course a person is in, so the folder has to carry the course name
+either way; once it does, a second level only makes the path longer to type.
+
+The layout is course-agnostic: same shape, same file names, same instruction to a
+student, whatever the course and whatever the language. A Python course would
+carry `run-py-job.sh`, generated from `run-py-job.sh.erb`. Only the values inside
+differ.
+
+### What is refreshed, and what is left alone
+
+The folder is rewritten on **every launch, for every user** — student, staff and
+admin alike. There is no write test and no per-role branch: the destination is
+the user's own home, so writability is not in question, and a student who never
+receives a copy has nothing to run.
+
+Only the two names above are replaced. Everything else in that folder is left
+alone, which is what makes the supported instruction safe:
+
+```bash
+cp ~/stat139-job-tools/run-r-job.sh run-my-job.sh
+```
+
+Copy it, rename it, edit the copy. `run-my-job.sh` is never touched. Edit
+`run-r-job.sh` in place and the change is gone at the next launch, with no
+warning — which is why the wrapper's own header says so first, in a box, before
+it says anything else.
+
+A student needs no copy at all in order to run a job. The wrapper is submitted by
+path, from wherever they are working:
+
+```bash
+sbatch ~/stat139-job-tools/run-r-job.sh hw3.R
+```
+
+Copying is for people who want to change it.
+
+This replaces an earlier design in which the canonical copy lived in the course
+folder and was refreshed only when a member of the teaching staff launched the
+app. Two things were wrong with it. Students had to copy a file before they could
+do anything, which is a step that can be got wrong and a file that can go stale;
+and if no staff member ever opened the app, the folder simply did not exist, with
+no error and nothing to report it — the first sign was a student asking where the
+script was. Writing into home removes both, along with the separate test copy
+admins used to get, since they now exercise the same path as everyone else.
+
+### Where the values live
+
+The wrapper carries the mechanism. `course-env.sh` carries the values, and it
+lives in the **course folder**, not in anyone's home:
 
 ```bash
 IMAGE=/shared/apptainerImages/<image>.sif
 R_LIB=<course shared folder>/R/x86_64-pc-linux-gnu-library/<R version>
 ```
 
-The three course files are ERB templates under `template/`, so Open OnDemand
-renders them at session start with the rest of the app and stages them into the
-session directory. `script.sh` then copies them into the course folder. Nothing
-does its own substitution.
+The wrapper reads it at run time:
 
 ```erb
 <%- _image = "/shared/apptainerImages/#{context.imagefile}" -%>
 IMAGE=<%= _image %>
 R_LIB=<%= _rlib %>
-COURSE_ENV=<%= _tools %>/course-env.sh
+COURSE_ENV=<%= _course %>/course-env.sh
 
-[ -r "$COURSE_ENV" ] && . "$COURSE_ENV"
+[ -n "$COURSE_ENV" ] && [ -r "$COURSE_ENV" ] && . "$COURSE_ENV"
 ```
 
-The course folder is derived from `r_libpath` rather than carried as its own
-attribute: `r_libpath` is `<course folder>/R/<arch>-library/<version>`, so the
-part before `/R/` is the folder.
+The course folder is derived from `r_libpath`: `r_libpath` is
+`<course folder>/R/<arch>-library/<version>`, so the part before `/R/` is the
+folder.
 
-This design lets a student copy `run-r-job.sh` once while still receiving later
-updates to the image or course library path. A copy taken in week 2 uses week
-9's image, and the student does nothing to get it.
+That one file in one shared place is what lets a copy a student took in week 2
+run under week 9's image without the student doing anything. The two assignments
+above it are a fallback for a course being tested before its folder is
+provisioned; every course starts in that state.
 
-The embedded values are a fallback for early testing, before the course shared
-folder exists. Every course starts in that state.
+> **`course-env.sh` is written by provisioning, not by a session.** It belongs to
+> the course rather than to any one person, so no launch writes it —
+> `provisionRStudioCourse.sh` does, once, when the course folder and its R library
+> are created. Until that script exists the file is simply absent and the baked-in
+> fallbacks apply, which is correct but freezes the values at render time.
 
 ```mermaid
 flowchart TD
-    A["Student in the RStudio Terminal<br/><code>sbatch run-r-job.sh hw3.R</code>"]
+    A["Student in the RStudio Terminal<br/><code>sbatch ~/stat139-job-tools/run-r-job.sh hw3.R</code>"]
     A --> B["Slurm schedules the job<br/>on another compute node"]
-    B --> C["run-r-job.sh reads<br/>job-tools/course-env.sh"]
+    B --> C["run-r-job.sh reads<br/>&lt;course folder&gt;/course-env.sh"]
     C --> D["spack activate apptainer"]
     D --> E["apptainer exec — the same image<br/>as the RStudio session"]
     E --> F["Rscript hw3.R<br/>with R_LIBS_USER = the course library"]
@@ -371,82 +425,39 @@ flowchart TD
     C -. "IMAGE and R_LIB are read at run time,<br/>so a copy cannot go stale" .-> C
 ```
 
-### Why the canonical files live in the course folder
-
-The course folder holds the maintained, read-only-for-students copy.
-
-Students are expected to copy and modify their own job scripts. They are not
-expected to maintain the course wrapper. A shared canonical copy means there
-is always a known-good version available.
-
-A file in a home directory cannot do this job, because it has to be two things
-at once: the class's supported copy, and that person's own file. Those want
-opposite maintenance rules. Refresh it and a student's edits are destroyed.
-Preserve their edits and it silently goes stale.
-
-The write behavior is intentionally different for three launchers:
-
-| Launcher | Course `job-tools/` | Launcher's home |
-|---|---|---|
-| Staff or faculty able to write the course folder | Refresh on launch | Do not write |
-| Admin or development staff | Do not modify | Write `run-r-job-<sub-app>-test.sh`, for testing |
-| Student | Do not modify | Do not write |
-
-Use write access to the course folder as the staff test:
-
-```bash
-[ -w "$COURSE_DIR" ]
-```
-
-This measures the capability that matters without maintaining a separate
-hard-coded staff list.
-
-The two checks run independently rather than as an `if/elif` chain, because one
-person can be both staff and an admin. The admin branch is not a nicety: the
-dev team usually launches a course before its folder exists or before Grouper
-has propagated, so without it there would be nothing to test with.
-
-**Every staff launch rewrites the files, not just the first.** The image and the
-course library path live on the sub-app form. If either changes, a copy written
-once is now wrong and nobody finds out. Rewriting on every staff launch means the
-files follow the form on their own: a wrong file, or a deleted one, is one launch
-away from being right again.
-
-That has a consequence for teaching staff, and it is the opposite of what a file
-in a folder you own usually implies. **A hand edit does not survive.** Staff can
-write these files, but the next staff launch overwrites them. The supported way
-for a staff member to change what a job does is the same as for a student: copy
-the wrapper, edit the copy.
-
-> **Nothing provisions the course folder except a staff launch.** If no member of
-> the teaching staff ever opens the app, `job-tools/` does not exist, and students
-> find nothing to copy. No error is raised and nothing reports it — the first sign
-> is a student asking where the script is. Put "launch the app once" in the course
-> handoff.
-
 ### Student workflow
 
-Students should work in a directory they own:
+From the folder the script is in:
 
 ```bash
-cp ~/<canvas-id>/job-tools/run-r-job.sh .
-sbatch run-r-job.sh my_script.R
+sbatch ~/stat139-job-tools/run-r-job.sh my_script.R
+cat stat139-<jobid>.out
 ```
 
-They can override Slurm defaults on the command line:
+Slurm defaults can be overridden on the command line:
 
 ```bash
-sbatch -c 4 -t 02:00:00 -J hw3 run-r-job.sh my_script.R
+sbatch -c 4 -t 02:00:00 -J hw3 ~/stat139-job-tools/run-r-job.sh my_script.R
 ```
 
-Slurm options must come before the wrapper name. Options placed after the
-wrapper are passed to the wrapper as ordinary arguments and are ignored without
-an obvious error. The job still completes, which is what makes the mistake hard
-to spot. The wrapper warns when it sees one.
+Slurm options must come before the wrapper name. Options placed after the wrapper
+are passed to the wrapper as ordinary arguments and are ignored without an obvious
+error. The job still completes, which is what makes the mistake hard to spot. The
+wrapper warns when it sees one.
 
-Nothing has to be configured to name a job. Open OnDemand names the session's
-Slurm job after the sub-app file, so `${SLURM_JOB_NAME##*/}` is the sub-app
-name.
+Submit from a directory the student owns. The course folder is read-only to them,
+so a job started from inside it cannot write its output.
+
+The job is named for the course and its output file is too — `stat139` in
+`squeue`, `stat139-<jobid>.out` on disk — because both come from `#SBATCH`
+directives rendered from `course_slug`. Slurm's own default would be
+`slurm-<jobid>.out`, which says nothing about which course produced it in a home
+directory holding several.
+
+Nothing has to be configured to name the *session's* job. Open OnDemand names it
+after the sub-app file, so `${SLURM_JOB_NAME##*/}` is the sub-app name — which is
+also the fallback used for the folder name if `course_slug` is ever missing from
+the form.
 
 ## Why the wrapper is required
 
@@ -581,3 +592,9 @@ image and runs `Rscript` inside it.
 - `sudo` resets `PATH`. Use `/opt/slurm/bin/sbatch` under `sudo -u`.
 - Group enumeration works on the portal and not on compute nodes. Per-name
   lookups work everywhere.
+- The job-tools folder is in the user's own home and is refreshed on every
+  launch. Only `run-r-job.sh` and `README.md` are replaced; anything else in it
+  is left alone.
+- `~/<canvas-id>` is a symlink to the read-only course folder. Nothing can be
+  written beneath it, which is why the job-tools folder is named for the course
+  rather than for the Canvas id.

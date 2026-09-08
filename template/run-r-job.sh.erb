@@ -1,23 +1,28 @@
 <%-
   _rlib   = context.respond_to?('r_libpath') ? context.r_libpath.to_s : ''
   _course = _rlib.sub(%r{/R/.*\z}, '')
-  _tools  = _course.empty? ? '' : "#{_course}/job-tools"
-  _image  = "/shared/apptainerImages/#{context.imagefile}"
+  _slug   = context.respond_to?('course_slug') ? context.course_slug.to_s : ''
+  _slug   = 'course' if _slug.empty?
+  _tools  = "~/#{_slug}-job-tools"
+  _img    = context.respond_to?('imagefile') ? context.imagefile.to_s : ''
+  _image  = _img.empty? ? '' : "/shared/apptainerImages/#{_img}"
+  _cenv   = _course.empty? ? '' : "#{_course}/course-env.sh"
 -%>
 #!/bin/bash
 #
 # ===========================================================================
 #  THIS FILE IS REPLACED EVERY TIME YOU OPEN RSTUDIO.
 #
-#  It belongs to the course, not to you. Every launch puts a fresh copy here,
-#  so any change you make to THIS file is lost the next time you open RStudio.
+#  It belongs to the course, not to you. Every launch puts a fresh copy in
+#  <%= _tools %>/, so any change you make to THIS file is lost
+#  the next time you open RStudio.
 #
 #  TO KEEP YOUR CHANGES, give the file your own name first:
 #
-#      cp run-r-job.sh run-my-job.sh
+#      cp <%= _tools %>/run-r-job.sh run-my-job.sh
 #
-#  Then edit run-my-job.sh. Nothing will ever touch it. Only the file named
-#  run-r-job.sh is replaced - anything else in this folder is left alone.
+#  Then edit run-my-job.sh. Nothing will ever touch it. Only run-r-job.sh and
+#  README.md are replaced - anything else in that folder is left alone.
 #
 #  Broken it? Open RStudio again, or copy it again. It comes back correct.
 # ===========================================================================
@@ -30,24 +35,22 @@
 #
 # HOW TO RUN A JOB
 #
-# Work in a folder you own. Then:
+# From the folder your R script is in:
 #
-#     sbatch run-my-job.sh hw3.R
+#     sbatch <%= _tools %>/run-r-job.sh hw3.R
 #
-# Your output lands in the folder you submitted from:
+# You do not have to copy this file to use it. Your output lands in the folder
+# you submitted from:
 #
 #     squeue -u $USER              is it still running?
-#     cat slurm-<jobid>.out        what did it print?
-#
-# Submit from a folder of your own. The course folder is read-only to you, so
-# a job started from inside it cannot write its output anywhere.
+#     cat <%= _slug %>-<jobid>.out      what did it print?
 #
 # NEED MORE CPUS OR TIME?
 #
 # You do not have to edit anything. Options on the command line beat the
 # settings below:
 #
-#     sbatch -c 4 -t 02:00:00 -J hw3 run-my-job.sh hw3.R
+#     sbatch -c 4 -t 02:00:00 -J hw3 <%= _tools %>/run-r-job.sh hw3.R
 #
 #     -c   how many CPUs
 #     -t   how long, as HH:MM:SS
@@ -63,6 +66,8 @@
 # launched RStudio have no effect here, and asking for more here does not
 # make RStudio bigger.
 #
+#SBATCH --job-name=<%= _slug %>
+#SBATCH --output=<%= _slug %>-%j.out
 #SBATCH --partition=general
 #SBATCH --cpus-per-task=1
 #SBATCH --time=00:15:00
@@ -76,8 +81,12 @@
 # exist yet - a course being tested before its folder is provisioned.
 IMAGE=<%= _image %>
 R_LIB=<%= _rlib %>
-COURSE_ENV=<%= _tools %>/course-env.sh
-[ -r "$COURSE_ENV" ] && . "$COURSE_ENV"
+<%- if _cenv.empty? -%>
+COURSE_ENV=
+<%- else -%>
+COURSE_ENV=<%= _cenv %>
+<%- end -%>
+[ -n "$COURSE_ENV" ] && [ -r "$COURSE_ENV" ] && . "$COURSE_ENV"
 : "${IMAGE:?no IMAGE - course-env.sh is missing and no fallback was baked in}"
 : "${R_LIB:?no R_LIB - course-env.sh is missing and no fallback was baked in}"
 
@@ -95,7 +104,7 @@ for _arg in "${@:2}"; do
     -*)
       echo "NOTE: '$_arg' was passed to your R script, not to sbatch." >&2
       echo "      sbatch options go BEFORE the script name:" >&2
-      echo "        sbatch -J myname -c 4 $(basename "$0") $1" >&2
+      echo "        sbatch -J myname -c 4 $0 $1" >&2
       break ;;
   esac
 done

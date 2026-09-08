@@ -319,81 +319,61 @@ log "Slurm client bound: munge=$MUNGELIB"
 # here, where those values are known, instead of asking anyone to keep a
 # hand-written copy in step with the form.
 #
-# WHERE IT GOES depends on who is launching, and there are two INDEPENDENT
-# checks below - not an if/elif chain, because someone who is both staff and an
-# admin needs both to happen:
+# WHERE IT GOES: one folder in the user's own home, the same one for everybody.
 #
-#   1. can write the course folder  -> refresh the class copy in job-tools/
-#   2. is an OOD admin              -> a personal copy in $HOME, for testing
-#      a student                    -> nothing at all
+#     $HOME/<sub-app>-job-tools/          e.g. ~/stat139-job-tools/
 #
-# A student holding no copy is the point: they cannot hold a STALE copy. They
-# copy the class one when they want their own, and even that copy reads the
-# image and library from course-env.sh at run time, so it cannot drift.
+# Flat, not $HOME/<sub-app>/job-tools/. A home directory is shared by every
+# course a person is in, so the folder has to carry the course name either way -
+# and once it does, the second level buys nothing but a longer path to type. It
+# also keeps well clear of ~/<canvas-id>, which is the SYMLINK to the read-only
+# course folder: writing anything beneath that one fails.
+#
+# EVERY launch, for EVERY role. There is no write test and no staff branch here
+# any more. The destination is the user's own home, so writability was never the
+# question; and the separate admin test copy is gone too, because admins now get
+# the same folder as everyone else - which is a better test than a special one.
+#
+# Only the names installed below are replaced. Anything else in that folder is
+# left alone, which is what makes "copy it, rename it, edit that" safe advice -
+# and it is the advice both the wrapper header and the README give.
+#
+# NOT INSTALLED HERE: course-env.sh. That file names the current image and
+# course library, and it belongs to the course rather than to any one person, so
+# it is written once into the course folder by provisioning and read by the
+# wrapper at run time. That is what lets a copy a student took in September pick
+# up an image change in November without relaunching anything. Until
+# provisioning exists the file is simply absent, and the wrapper falls back to
+# the values baked in from this sub-app's form.
 
-_SUBAPP="${SLURM_JOB_NAME##*/}"          # local/stat139.yml.erb -> "stat139"
-[ -z "$_SUBAPP" ] && _SUBAPP="course"
-
-# The course folder is the library path with /R/... cut off. Note that %% gives
-# back the WHOLE string when there is no /R/ in it, which would point at the
-# library itself - so require that the cut actually happened.
-_RLIBS="<%= context.respond_to?('r_libpath') ? context.r_libpath : '' %>"
-_COURSE_DIR=""
-if [ -n "$_RLIBS" ] && [ "${_RLIBS%%/R/*}" != "$_RLIBS" ]; then
-  _COURSE_DIR="${_RLIBS%%/R/*}"
+_SLUG="<%= context.respond_to?('course_slug') ? context.course_slug : '' %>"
+if [ -z "$_SLUG" ]; then
+  _SLUG="${SLURM_JOB_NAME##*/}"          # local/stat139.yml.erb -> "stat139"
+  [ -z "$_SLUG" ] && _SLUG="course"
 fi
-_TOOLS="${_COURSE_DIR:+$_COURSE_DIR/job-tools}"
+_TOOLS="$HOME/${_SLUG}-job-tools"
 
-# render <template> <destination> <mode> - written to a temp file in the same
-# directory and moved into place, because rename is atomic within a filesystem:
-# two staff launching at once, or a student copying mid-write, must never see a
-# half-written script.
 _install() {
   # $1 staged file (OOD already rendered it), $2 destination, $3 mode.
-  # Write to a temp file in the destination directory and mv into place: two
-  # staff launching at once, or a student copying mid-write, must never see a
-  # half-written script.
+  # Write to a temp file in the destination directory and mv into place, because
+  # rename is atomic within a filesystem: two sessions launching at once, or a
+  # student reading mid-write, must never see a half-written script.
   [ -f "${JOBROOT}/$1" ] || { log "staged file missing: $1"; return 1; }
   _tmp="$2.$$.tmp"
   cp "${JOBROOT}/$1" "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
   chmod "$3" "$_tmp" && mv -f "$_tmp" "$2"
 }
 
-# --- check 1: staff and faculty refresh the class copy ----------------------
-# [ -w ] rather than group membership: writing is what actually matters, and it
-# needs no staff list, no extra attribute, and no guess about group names. It is
-# also why this is not tied to user_role - someone can be an admin AND staff.
-if [ -n "$_TOOLS" ] && [ -d "$_COURSE_DIR" ] && [ -w "$_COURSE_DIR" ]; then
-  mkdir -p "$_TOOLS" && chmod 755 "$_TOOLS"
-  # NB: the SHARED image path, not the node-local /tmp cache the GPU branch may
-  # use for this session - the job lands on a different node.
-  _install run-r-job.sh  "$_TOOLS/run-r-job.sh"  755
-  _install course-env.sh "$_TOOLS/course-env.sh" 644
-  _install README.md     "$_TOOLS/README.md"     644
-  log "refreshed course job-tools: $_TOOLS"
+if mkdir -p "$_TOOLS" 2>/dev/null; then
+  chmod 755 "$_TOOLS"
+  _install run-r-job.sh "$_TOOLS/run-r-job.sh" 755
+  _install README.md    "$_TOOLS/README.md"    644
+  log "refreshed job tools: $_TOOLS"
 else
-  log "not refreshing course job-tools (not writable by $(id -un)): ${_TOOLS:-unset}"
-fi
-
-# --- check 2: admins get a personal copy, for testing ------------------------
-# This exists for the dev team, who typically launch a course BEFORE its folder
-# is provisioned or before Grouper has propagated their access - so the branch
-# above does nothing and there would otherwise be nothing to test with.
-#
-# The name carries both the sub-app and the fact that it is a test artefact,
-# because a home directory is shared across every course a person is in, and
-# because either half has to stand on its own if the file is moved or copied
-# somewhere else mid-testing. It is the production name plus two suffixes, so
-# it trims back to that name from the right:
-#
-#     run-r-job-<sub-app>-test.sh -> run-r-job-<sub-app>.sh -> run-r-job.sh
-#
-# Overwritten on every launch, because it is a testing artefact and never
-# anyone's personal file.
-if [ "<%= context.respond_to?('user_role') ? context.user_role : '' %>" = "admin" ]; then
-  _WRAPPER_TEST="run-r-job-${_SUBAPP}-test.sh"
-  _install run-r-job.sh "$HOME/$_WRAPPER_TEST" 755 \
-    && log "wrote admin test wrapper: $HOME/$_WRAPPER_TEST"
+  # Not fatal. The session is perfectly usable without the wrapper, and failing
+  # the launch over it would take RStudio away from someone who may not want a
+  # batch job at all.
+  log "could not create job tools folder, skipping: $_TOOLS"
 fi
 <% end %>
 

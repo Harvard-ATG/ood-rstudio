@@ -1,121 +1,219 @@
 <%-
   _rlib   = context.respond_to?('r_libpath') ? context.r_libpath.to_s : ''
   _course = _rlib.sub(%r{/R/.*\z}, '')
-  _tools  = _course.empty? ? '' : "#{_course}/job-tools"
-  _image  = "/shared/apptainerImages/#{context.imagefile}"
+  _slug   = context.respond_to?('course_slug') ? context.course_slug.to_s : ''
+  _slug   = 'course' if _slug.empty?
+  _tools  = "~/#{_slug}-job-tools"
+  _img    = context.respond_to?('imagefile') ? context.imagefile.to_s : ''
+  _image  = _img.empty? ? '' : "/shared/apptainerImages/#{_img}"
 -%>
-# Running R batch jobs
+# Running an R script as a batch job
 
-This folder contains the course's supported tools for running R scripts as Slurm
-batch jobs.
+RStudio gives you one machine for as long as your session is open. A **batch
+job** is different: you hand the cluster an R script, it finds a machine, runs
+the script there, and writes the output to a file. You can close RStudio and
+the job keeps going.
 
-The wrapper runs your script in the same Apptainer image used by the course
-RStudio app. That means your batch job uses the same version of R and can use
-the same course package library as your interactive RStudio session.
+This folder — `<%= _tools %>/` — has everything you need. It is in
+your own home directory, and it is put there fresh every time you open RStudio.
 
-## Submit an R script
+---
 
-Work in a directory you own. Do not edit the files in this course folder.
+## Run your first job
 
-Copy the wrapper:
+Say your script is `hw3.R`, in whatever folder you are working in.
 
-```bash
-cp <%= _tools %>/run-r-job.sh .
-```
+**1. Open the Terminal pane in RStudio.** It is the tab next to Console.
 
-Then submit an R script:
-
-```bash
-sbatch run-r-job.sh my_script.R
-```
-
-For example, if your script is named `hw3-bootstrap.R`:
+**2. Go to the folder your script is in.**
 
 ```bash
-sbatch run-r-job.sh hw3-bootstrap.R
+cd ~/my-folder
 ```
 
-## Request different resources
-
-The wrapper includes default Slurm settings. You can override them when you
-submit the job.
-
-For example, request four CPUs, a two-hour time limit, and the job name `hw3`:
+**3. Submit it.**
 
 ```bash
-sbatch -c 4 -t 02:00:00 -J hw3 run-r-job.sh hw3-bootstrap.R
+sbatch <%= _tools %>/run-r-job.sh hw3.R
 ```
 
-Put Slurm options **before** the wrapper name:
+You will see:
+
+```text
+Submitted batch job 12345
+```
+
+That number is your **job ID**.
+
+**4. Wait, then read the output.**
 
 ```bash
-# Correct
-sbatch -c 4 -t 02:00:00 run-r-job.sh my_script.R
+squeue -u $USER                 # still running? empty means it finished
+cat <%= _slug %>-12345.out               # what your script printed
 ```
 
-```bash
-# Incorrect: these are passed to the wrapper instead of Slurm
-sbatch run-r-job.sh my_script.R -c 4 -t 02:00:00
+That is the whole thing. You do not have to copy the script, edit it, or set
+anything up first.
+
+---
+
+## Where the output goes
+
+Everything your script printed — `print()`, `cat()`, warnings, errors — goes
+into one file, in the folder you submitted from:
+
+```text
+<%= _slug %>-<job id>.out
 ```
+
+Files your script *writes itself* (a CSV, a plot, a saved model) go wherever
+your script tells them to, exactly as they would in the console. Use a path
+inside your own folder, not the course folder — the course folder is read-only
+to you.
+
+---
+
+## Ask for more CPUs or more time
+
+The defaults are **1 CPU** and **15 minutes**. If your job needs more, say so on
+the command line:
+
+```bash
+sbatch -c 4 -t 02:00:00 run-r-job.sh hw3.R
+```
+
+| Option | Means | Example |
+|---|---|---|
+| `-c` | how many CPUs | `-c 4` |
+| `-t` | how long, as `HH:MM:SS` | `-t 02:00:00` |
+| `-J` | a name, so you can spot it in `squeue` | `-J hw3` |
+
+**Options go before the script name.** This matters more than it looks:
+
+```bash
+sbatch -c 4 <%= _tools %>/run-r-job.sh hw3.R    # correct
+sbatch <%= _tools %>/run-r-job.sh hw3.R -c 4    # WRONG - and silent
+```
+
+In the second one your job still runs, but on 1 CPU. The `-c 4` was handed to
+your R script instead of to Slurm, and nothing warns you. If your job takes
+just as long as before, check this first.
+
+### If your job runs out of time
+
+It is killed, and the output file stops mid-sentence. There is no other
+warning. Ask for more time with `-t` and submit it again.
+
+---
 
 ## Pass arguments to your R script
 
-Anything after the R script name is passed to that script.
-
-For example:
+Anything after the script name is given to the script:
 
 ```bash
-sbatch run-r-job.sh analysis.R input-data.csv 10000
+sbatch run-r-job.sh analysis.R data.csv 10000
 ```
 
-In R, retrieve command-line arguments with:
+Read them in R with:
 
 ```r
 args <- commandArgs(trailingOnly = TRUE)
+args[1]   # "data.csv"
+args[2]   # "10000"   (a string - use as.numeric() if you need a number)
 ```
 
-## Check your job
+---
 
-Show your jobs:
+## Keep an eye on your jobs
 
 ```bash
-squeue -u "$USER"
+squeue -u $USER          # what is queued or running right now
+sacct -u $USER           # what has run today, and how it ended
+scancel 12345            # stop job 12345
+scancel -u $USER         # stop all of your jobs
 ```
 
-Show completed-job information:
+In `squeue`, the `ST` column is the status: `R` is running, `PD` is waiting for
+a free machine.
+
+Your jobs are named `<%= _slug %>` unless you passed `-J`. Your RStudio session
+appears here too, as a separate row — do not cancel that one by mistake.
+
+---
+
+## Make your own version
+
+You will probably want your own copy at some point — different defaults, or an
+extra step before R starts.
+
+**Give it a new name when you copy it:**
 
 ```bash
-sacct -u "$USER"
+cp <%= _tools %>/run-r-job.sh run-my-job.sh
 ```
 
-Cancel a job:
+Then edit and submit `run-my-job.sh`. It is yours; nothing will ever overwrite
+it.
 
-```bash
-scancel <job-id>
-```
+> **Do not edit `run-r-job.sh` in place.** This folder is refreshed every time
+> you open RStudio, so your changes would be gone the next time you log in —
+> with no warning and no copy kept.
 
-The wrapper writes output to a file named:
+Two file names are replaced on every launch:
 
-```text
-slurm-<job-id>.out
-```
-
-in the directory from which you submitted the job. Submit from a directory you
-own: this course folder is read-only to you, so a job started from inside it
-cannot write its output.
-
-## Do not edit the shared files
-
-This folder contains the maintained course copies:
-
-| File | Purpose |
+| File | |
 |---|---|
-| `run-r-job.sh` | Runs an R script as a Slurm job in the course R environment. |
-| `course-env.sh` | Defines the current image and course R-library settings. |
-| `README.md` | This file. |
+| `run-r-job.sh` | the wrapper — replaced every launch |
+| `README.md` | this file — replaced every launch |
 
-Copy `run-r-job.sh` into your own working directory before submitting a job. Do not
-edit `course-env.sh`.
+**Everything else you put in this folder is left alone.** That includes
+`run-my-job.sh`, your R scripts, and your output files.
 
-The wrapper reads the current course settings when it runs, so a copy you made
-earlier will continue to use the current course image and package library.
+Broke something? Open RStudio again. A correct copy comes back.
+
+---
+
+## Why a wrapper at all
+
+Your RStudio session runs inside a container image — a fixed R and a fixed set
+of packages, the same for everyone in the course. A batch job runs on a
+different machine, which has an R of its own and none of the course packages.
+Left alone, your job would use the wrong R and fail to find things that work
+perfectly in the console.
+
+The wrapper closes that gap. It runs your script:
+
+- in the course image, `<%= _image %>`, so the R version is the one you have been using;
+- with the course package library on `.libPaths()`, so `library(...)` works;
+- with your own package library too, so anything you installed yourself still loads;
+- with your home directory visible, so your files and paths are where you expect.
+
+If you would rather run it by hand, this is what it comes down to:
+
+```bash
+. /shared/spack/share/spack/setup-env.sh
+spack env activate apptainer
+apptainer exec -B /shared/courseSharedFolders -B "$HOME" \
+  --env R_LIBS_USER="$HOME/R/%p-library/%v:<%= _rlib %>" \
+  <%= _image %> Rscript hw3.R
+```
+
+The wrapper does exactly that, and reads the image and library paths from the
+course at run time — so a copy you made in September still uses the right ones
+in November.
+
+---
+
+## If something goes wrong
+
+| What you see | What it usually means |
+|---|---|
+| `sbatch: command not found` | You are in the wrong place — use the **Terminal** pane inside RStudio, not the Console. |
+| No `.out` file at all | The job has not started yet. Check `squeue -u $USER`. |
+| `there is no package called '...'` | The package is not in the course library. Install it in the RStudio console with `install.packages()` — it goes into your own library, which jobs can see. |
+| Output stops in the middle | The job hit the time limit. Resubmit with a longer `-t`. |
+| The job ignored your `-c` or `-t` | The option came after the script name. See above. |
+| `run-r-job.sh: No such file` | Use the full path: `<%= _tools %>/run-r-job.sh`. |
+
+Still stuck? Ask on the course forum, and include the job ID and the last few
+lines of the `.out` file.
