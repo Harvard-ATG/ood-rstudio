@@ -15,16 +15,9 @@
 <% if defined?(context) && context.respond_to?(:slurm_enabled) && context.slurm_enabled.to_s == "true" %>
   <% slug = context.respond_to?(:course_slug) ? context.course_slug.to_s : "" %>
   <% if !slug.empty? %>
-    <p><strong>Running an R script as a batch job.</strong> The wrapper is already in your home
-    directory, and is refreshed every time you launch. From the folder your script is in:</p>
-
-    <pre><code>sbatch ~/<%= slug %>-job-tools/run-r-job.sh my_script.R
-cat <%= slug %>-&lt;jobid&gt;.out</code></pre>
-
-    <p>It runs your file with this same image and the same packages, so a job produces what you
-    see in the console. You do not have to copy or edit anything to ask for more CPUs or time -
-    the full instructions are alongside it:</p>
-
-    <pre><code>cat ~/<%= slug %>-job-tools/README.md</code></pre>
+    <p><strong>Batch jobs.</strong> From the folder your script is in:</p>
+    <pre><code>sbatch ~/<%= slug %>-job-tools/run-r-job.sh my_script.R</code></pre>
+    <p>Output lands in <code><%= slug %>-&lt;jobid&gt;.out</code>.
+    Instructions: <code>~/<%= slug %>-job-tools/README.md</code></p>
   <% end %>
 <% end %>

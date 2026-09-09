@@ -1,8 +1,7 @@
 <%-
 # ---------------------------------------------------------------------------
-# TEMPORARY TEST FORM. The control case: no slurm_enabled, so section 4 of
-# template/script.sh.erb never renders and no ~/stat139-job-tools/ appears.
-# Launch this and the absence of that folder is the assertion.
+# TEMPORARY TEST FORM. The gate test. Visible only to canvas170320 staff and
+# enrolled students - invisible to admins by design.
 #
 # Three forms exist only to test the change that moved job tools into the user's
 # home. Before the course ships they collapse back to ONE: admins, staff and
@@ -14,7 +13,10 @@
 # ---------------------------------------------------------------------------
 # Specify admin groups by the full name of the group in the production HKey environment.
 adminGroups = [
-  "ondemand-admins-1025174" # HUIT OOD admin group
+  # Deliberately empty. This form exists to prove the gate, so an OOD admin who
+  # is not enrolled must NOT see it: no admin match, no staff match, no canvas
+  # match -> cluster "disable_this_app". Its ABSENCE from an admin's dashboard
+  # is the assertion. If it appears there, the gate is broken.
 ]
 # Canvas course ID: canvas.harvard.edu/courses/170320
 enabledGroups = [
@@ -54,25 +56,54 @@ end
 -%>
 ---
 cluster: "<%= cluster %>"
-title: "RStudio - STAT 139 (ADMIN)"
+title: "RStudio - STAT 139"
 description: |
   RStudio for **STAT 139** (Introduction to Linear Models), Canvas 170320.
 
   R comes from the course image. Packages installed by the teaching staff are
   already on `.libPaths()`.
 
-  **No batch jobs from this form.** It does not set `slurm_enabled`, so there is
-  no Slurm client in the session and no `~/stat139-job-tools/` in your home. That
-  is deliberate — this is the control case for testing. Use **STAT 139 (STUDENT)**
-  to submit jobs.
+  **Batch jobs.** `sbatch`, `squeue` and `sacct` work in the Terminal pane. The
+  wrapper is in your home directory and is refreshed on every launch:
+
+  ```bash
+  sbatch ~/stat139-job-tools/run-r-job.sh my_script.R
+  cat stat139-<jobid>.out
+  ```
+
+  Ask for more without editing it: `sbatch -c 4 -t 02:00:00 ...`. Submit from a
+  folder you own — the course folder is read-only to you.
+
+  Full instructions: `~/stat139-job-tools/README.md`
 
 attributes:
   imagefile: rstudio-base.sif
 
+  # Opt in to the Slurm client injection in template/script.sh.erb, which lets
+  # sbatch/squeue/sacct work from inside this app's container. Two requirements,
+  # both easy to get wrong:
+  #   - the value must be the string "true"
+  #   - slurm_enabled MUST also appear under form: below. OOD only passes
+  #     form:-listed attributes into the template context, so leaving it out
+  #     makes the injection silently do nothing. A hard-coded value listed under
+  #     form: is still hidden from the user in the dashboard.
+  slurm_enabled: "true"
 
   # Course-managed R package library (created by the teaching staff)
   r_libpath: "/shared/courseSharedFolders/170320outer/170320/R/x86_64-pc-linux-gnu-library/4.5"
 
+  # Names the per-course folder of job tools in each user's home:
+  # ~/stat139-job-tools/. Carried as its own attribute rather than derived from
+  # r_libpath, because that would give the Canvas id - and ~/170320 is already
+  # taken by the symlink to the read-only course folder.
+  #
+  # MUST also appear under form: below. OOD passes only form:-listed attributes
+  # into the template context, so leaving it out makes every path fall back to
+  # the generic "course" name.
+  #
+  # Also used for the job name and the output file, so a student sees
+  # stat139-<jobid>.out rather than slurm-<jobid>.out.
+  course_slug: "stat139"
 
   custom_num_cores:
     widget: "number_field"
@@ -86,3 +117,5 @@ form:
   - bc_num_hours
   - imagefile
   - r_libpath
+  - slurm_enabled
+  - course_slug
