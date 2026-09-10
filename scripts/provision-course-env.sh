@@ -25,6 +25,7 @@
 #   --arch        x86_64-pc-linux-gnu
 #   course root   /shared/courseSharedFolders    override: OOD_COURSE_SHARED_ROOT
 #   image root    /shared/apptainerImages        override: OOD_IMAGE_ROOT
+#   apptainer     the spack environment view     override: OOD_APPTAINER_BIN
 #
 # The two roots are overridable so the script can be exercised against a fake
 # tree without a real /shared.
@@ -94,17 +95,32 @@ log "env_file=${ENV_FILE}"
 [ -d "$COURSE_FOLDER" ] || fail "course folder '${COURSE_FOLDER}' does not exist. It is created by /etc/ood/add_user.sh at a course member's first login, not by this script."
 [ -r "$IMAGE_PATH" ]    || fail "image '${IMAGE_PATH}' is not readable"
 
+# Find apptainer by path rather than by PATH. This script is meant to be run
+# under sudo, and sudo replaces PATH with secure_path, which cannot contain the
+# spack view - so PATH lookup fails on exactly the invocation we intend. Do not
+# activate the spack environment to fix it: activation costs minutes, and the
+# binary is at a stable path anyway.
+APPTAINER_BIN="${OOD_APPTAINER_BIN:-}"
+if [ -z "$APPTAINER_BIN" ]; then
+    for _cand in \
+        "$(command -v apptainer 2>/dev/null || true)" \
+        /shared/spack/var/spack/environments/apptainer/.spack-env/view/bin/apptainer
+    do
+        if [ -n "$_cand" ] && [ -x "$_cand" ]; then APPTAINER_BIN="$_cand"; break; fi
+    done
+fi
+
 # The R version is load-bearing, so check it rather than trust the flag. Skipped
-# rather than fatal when apptainer is unavailable: on a head node without spack
+# rather than fatal when apptainer cannot be found at all: on a host without it
 # this script is still useful, and the flag is still the operator's statement.
-if command -v apptainer >/dev/null 2>&1; then
-    image_r=$(apptainer exec "$IMAGE_PATH" R --version 2>/dev/null | sed -n '1s/.*version \([0-9]*\.[0-9]*\).*/\1/p')
+if [ -n "$APPTAINER_BIN" ]; then
+    image_r=$("$APPTAINER_BIN" exec "$IMAGE_PATH" R --version 2>/dev/null | sed -n '1s/.*version \([0-9]*\.[0-9]*\).*/\1/p')
     if [ -n "$image_r" ] && [ "$image_r" != "$R_VERSION" ]; then
         fail "image reports R ${image_r} but --r-version is ${R_VERSION}. The library path ends in the version, so this would orphan every package in it."
     fi
     [ -n "$image_r" ] && log "image R version confirmed: ${image_r}"
 else
-    log "apptainer not on PATH; skipping the R version check (--r-version ${R_VERSION} taken on trust)"
+    log "apptainer not found; skipping the R version check (--r-version ${R_VERSION} taken on trust). Set OOD_APPTAINER_BIN to its path."
 fi
 
 ENV_CONTENT="# Written by ${this_script}. Do not edit by hand.
