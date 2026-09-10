@@ -79,11 +79,28 @@ sed 's/^ \{2\}//' > "$WORKING_DIR/rsession.sh" << EOL
   export R_LIBS_USER="${R_LIBS_USER}"
   export TZ="US/Eastern"
   <% if context.respond_to?('slurm_enabled') && context.slurm_enabled.to_s == "true" %>
-  # Slurm-enabled sub-apps only: RStudio rebuilds PATH for the session, so this
-  # is what puts sbatch/squeue in front of R itself - system("sbatch ...") from
-  # the console depends on it. Terminal shells are handled by the profile.d
-  # drop-in in the bind block below. \${PATH} is escaped so it expands at run
-  # time in the container, not when this wrapper is written.
+  # Slurm-enabled sub-apps only.
+  #
+  # MEASURED 2026-09-10: this export does not reach R. RStudio replaces PATH for
+  # the session after this wrapper sets it, so Sys.getenv("PATH") in the console
+  # carries RStudio's own quarto and postback directories and nothing of Slurm's.
+  # Kept because removing it is an untested change to a working session, not
+  # because it is known to help.
+  #
+  # Submitting from the R console still WORKS - it just needs the full path,
+  # because the command is present and only PATH is missing it:
+  #
+  #     system("/opt/slurm/bin/sbatch ~/<course>-job-tools/run-r-job.sh hw3.R")
+  #
+  # Confirmed by jobs 990 and 991, submitted that way from the console. A bare
+  # system("sbatch ...") fails, since R cannot find it on PATH.
+  #
+  # Terminal shells are unaffected: they source /etc/profile.d/zz-slurm.sh, which
+  # this script binds in, so plain sbatch works there. That is the route the
+  # student documentation gives, and it needs no full path.
+  #
+  # \${PATH} is escaped so it expands at run time in the container, not when
+  # this wrapper is written.
   export PATH="/opt/slurm/bin:\${PATH}"
   <% end %>
   export HOME="$HOME"
@@ -114,8 +131,8 @@ sed 's/^ \{2\}//' > "$WORKING_DIR/rsession.sh" << EOL
   export R_LIBS=""
 
   echo "Launching rsession..."
-  # No --r-libs-user flag: the export above does the same job. See the comment
-  # beside it for what was tested.
+  # No --r-libs-user flag: export R_LIBS_USER, set earlier in this wrapper,
+  # does the same job. The comment on that line records what was tested.
   exec rsession "\${@}"
 EOL
 )
@@ -169,8 +186,11 @@ SING_BIND_LIST=(
 #                         because Apptainer already injects the calling user.
 #   5. PATH set twice     APPTAINERENV_APPEND_PATH alone is NOT enough: RStudio
 #                         rebuilds the session PATH, so it never reaches an
-#                         rserver-spawned shell. See the profile.d drop-in below
-#                         (terminal) and the rsession.sh wrapper above (R).
+#                         rserver-spawned shell. The /etc/profile.d/zz-slurm.sh
+#                         bind is what makes the Terminal pane work. The
+#                         rsession.sh PATH export does NOT reach R - the console
+#                         can still submit, but needs sbatch's full path. See
+#                         the note on that line.
 #
 # Verified on pc-stage 2026-08-27: job 772 submitted jobs 773/774 from inside
 # rstudio-base.sif as an LDAP user; session job 778 ran squeue and submitted
@@ -234,7 +254,7 @@ for _g in $(id -Gn); do getent group "$_g" >> "$WORKING_DIR/group"; done
 # node, and compute nodes cannot enumerate group membership - SSSD there returns
 # a group with an empty or near-empty member list (measured: 1 name, against 179
 # on the portal). What compute nodes CAN do is resolve a name that is handed to
-# them, which is how the session owner already gets a passwd entry above.
+# them, which is how the session owner's own passwd entry is produced.
 #
 # ERB is evaluated on the PORTAL, where the directory answers in full. So the
 # roster is looked up there and pasted in as a plain list of names; the passwd
@@ -358,7 +378,7 @@ log "Slurm client bound: munge=$MUNGELIB"
 # question; and the separate admin test copy is gone too, because admins now get
 # the same folder as everyone else - which is a better test than a special one.
 #
-# Only the names installed below are replaced. Anything else in that folder is
+# Only run-r-job.sh and README.md are replaced. Anything else in that folder is
 # left alone, which is what makes "copy it, rename it, edit that" safe advice -
 # and it is the advice both the wrapper header and the README give.
 #

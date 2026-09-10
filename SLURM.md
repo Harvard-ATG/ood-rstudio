@@ -293,8 +293,22 @@ The app also:
 
 - binds a `/etc/profile.d/` drop-in so interactive Terminal shells get the
   Slurm path; and
-- exports the needed `PATH` inside generated `rsession.sh` so R commands such
-  as `system("sbatch myjob.sh")` work.
+- exports `PATH` inside the generated `rsession.sh`.
+
+**The second does not reach R.** Measured 2026-09-10: RStudio replaces `PATH`
+for the session after that wrapper runs, so `Sys.getenv("PATH")` in the console
+holds RStudio's own directories and nothing of Slurm's. A bare
+`system("sbatch ...")` therefore fails.
+
+Submitting from the R console still works — the command is present and only the
+`PATH` entry is missing, so give the full path:
+
+```r
+system("/opt/slurm/bin/sbatch ~/<course>-job-tools/run-r-job.sh hw3.R")
+```
+
+The Terminal pane needs no such thing, because login shells source the
+`profile.d` drop-in. That is the route the student documentation gives.
 
 If `/opt/slurm/bin/sbatch` exists but `sbatch` says `command not found`, check
 the environment and `PATH`, not the bind itself. A useful tell is that
@@ -409,7 +423,7 @@ provisioned; every course starts in that state.
 
 > **`course-env.sh` is written by provisioning, not by a session.** It belongs to
 > the course rather than to any one person, so no launch writes it —
-> `provisionRStudioCourse.sh` does, once, when the course folder and its R library
+> `scripts/provision-course-env.sh` does, once, when the course folder and its R library
 > are created. Until that script exists the file is simply absent and the baked-in
 > fallbacks apply, which is correct but freezes the values at render time.
 
@@ -568,11 +582,21 @@ easiest mistake to make and the hardest to spot, because there is no error.
 <details>
 <summary><strong><code>sbatch: command not found</code>, but <code>/opt/slurm/bin/sbatch</code> exists</strong></summary>
 
-**Cause:** The bind worked, but RStudio's reconstructed Terminal or R-session
-environment does not include `/opt/slurm/bin` in `PATH`.
+**Cause:** The bind worked, but the `PATH` in use does not include
+`/opt/slurm/bin`.
 
-**Fix:** Confirm the profile drop-in is bound for Terminal shells and the
-generated `rsession.sh` exports the required path for the R console.
+In a **Terminal** shell that means the `profile.d` drop-in is not being sourced
+— check that it is bound, and that the shell is a login shell.
+
+In the **R console** it is expected. RStudio rebuilds `PATH` for the session, so
+`/opt/slurm/bin` never reaches R however the wrapper exports it.
+
+**Fix:** From a Terminal, confirm the drop-in is bound. From R, use the full
+path, which works because only the `PATH` entry is missing and not the command:
+
+```r
+system("/opt/slurm/bin/sbatch ~/<course>-job-tools/run-r-job.sh hw3.R")
+```
 </details>
 
 <details>

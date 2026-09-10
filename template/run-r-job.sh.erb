@@ -60,7 +60,7 @@
 # are handed to your R script instead: the job still runs, the option does
 # nothing, and nothing tells you.
 #
-# THE SETTINGS BELOW ARE FOR THIS JOB, NOT YOUR SESSION
+# THE #SBATCH SETTINGS ARE FOR THIS JOB, NOT YOUR SESSION
 #
 # This job is scheduled on its own. The CPUs and time you picked when you
 # launched RStudio have no effect here, and asking for more here does not
@@ -73,7 +73,7 @@
 #SBATCH --time=00:15:00
 #
 # ---------------------------------------------------------------------------
-# The image and library below are read from the course folder at RUN time, not
+# IMAGE and R_LIB are read from the course folder at RUN time, not
 # frozen into this file. That is what lets a copy taken today still use the
 # right image next month: change the course, and every copy follows.
 #
@@ -89,6 +89,25 @@ COURSE_ENV=<%= _cenv %>
 [ -n "$COURSE_ENV" ] && [ -r "$COURSE_ENV" ] && . "$COURSE_ENV"
 : "${IMAGE:?no IMAGE - course-env.sh is missing and no fallback was baked in}"
 : "${R_LIB:?no R_LIB - course-env.sh is missing and no fallback was baked in}"
+
+# Check the script exists BEFORE anything expensive. Activating spack takes
+# minutes on a cold node, and starting the container is not free either, so a
+# mistyped filename would otherwise cost a full job cycle to discover - the
+# error arriving from Rscript at the very end, long after the mistake.
+#
+# It has to happen here rather than at submission: sbatch does not evaluate the
+# arguments it passes through, so a typo still costs a scheduling round trip.
+# This just stops it also costing the startup.
+#
+# The working directory is reported because that is the actual confusion -
+# students submit from one folder and name a file in another, and the message
+# "no such file" alone does not say which folder was searched.
+if [ ! -f "$1" ]; then
+  echo "no such R script: $1" >&2
+  echo "  looked in: $(pwd)" >&2
+  echo "  give a path relative to that, or an absolute one" >&2
+  exit 2
+fi
 
 # Spack is only here to provide the `apptainer` command.
 . /shared/spack/share/spack/setup-env.sh

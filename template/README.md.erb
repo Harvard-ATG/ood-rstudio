@@ -270,7 +270,7 @@ version.
 | No `.out` file at all | The job has not started yet. Check `squeue -u $USER`. |
 | `there is no package called '...'` | Run `.libPaths()` first — if you only see three folders, it is a permissions problem, not a missing package. If all four are there, the package genuinely is not installed: `install.packages()` in the Console puts it in your own library, which jobs can see. |
 | Output stops in the middle | The job hit the time limit. Resubmit with a longer `-t`. |
-| The job ignored your `-c` or `-t` | The option came after the script name. See above. |
+| The job ignored your `-c` or `-t` | The option came after the script name - see *Ask for more CPUs or more time*. |
 | `run-r-job.sh: No such file` | Use the full path: `<%= _tools %>/run-r-job.sh`. |
 
 Still stuck? Ask on the course forum, and include the job ID and the last few
