@@ -1,3 +1,8 @@
+<%#
+  Rendered at launch and installed as ~/<course_slug>-job-tools/run-r-job.sh.
+  The wrapper a student submits with sbatch. Replaced on every launch, so a
+  student who wants to change it renames their copy.
+-%>
 <%-
   _rlib   = context.respond_to?('r_libpath') ? context.r_libpath.to_s : ''
   _course = _rlib.sub(%r{/R/.*\z}, '')
@@ -48,7 +53,7 @@
 # NEED MORE CPUS OR TIME?
 #
 # You do not have to edit anything. Options on the command line beat the
-# settings below:
+# #SBATCH settings in this file:
 #
 #     sbatch -c 4 -t 02:00:00 -J hw3 <%= _tools %>/run-r-job.sh hw3.R
 #

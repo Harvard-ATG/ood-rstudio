@@ -1,5 +1,4 @@
 <%-
-# ---------------------------------------------------------------------------
 # Specify admin groups by the full name of the group in the production HKey environment.
 adminGroups = [
   "ondemand-admins-1025174" # HUIT OOD admin group
@@ -79,30 +78,17 @@ description: |
 attributes:
   imagefile: rstudio-base.sif
 
-  # Opt in to the Slurm client injection in template/script.sh.erb, which lets
-  # sbatch/squeue/sacct work from inside this app's container. Two requirements,
-  # both easy to get wrong:
-  #   - the value must be the string "true"
-  #   - slurm_enabled MUST also appear under form: below. OOD only passes
-  #     form:-listed attributes into the template context, so leaving it out
-  #     makes the injection silently do nothing. A hard-coded value listed under
-  #     form: is still hidden from the user in the dashboard.
+  # Turns on Slurm for this course, so students can submit batch jobs.
+  # Must be the string "true", and must also be listed under form: - otherwise
+  # it is silently ignored.
   slurm_enabled: "true"
 
-  # Course-managed R package library (created by the teaching staff)
+  # Where the teaching staff install packages for the class.
   r_libpath: "/shared/courseSharedFolders/170320outer/170320/R/x86_64-pc-linux-gnu-library/4.5"
 
-  # Names the per-course folder of job tools in each user's home:
-  # ~/stat139-job-tools/. Carried as its own attribute rather than derived from
-  # r_libpath, because that would give the Canvas id - and ~/170320 is already
-  # taken by the symlink to the read-only course folder.
-  #
-  # MUST also appear under form: below. OOD passes only form:-listed attributes
-  # into the template context, so leaving it out makes every path fall back to
-  # the generic "course" name.
-  #
-  # Also used for the job name and the output file, so a student sees
-  # stat139-<jobid>.out rather than slurm-<jobid>.out.
+  # Short course name, used to name the things a student sees:
+  # ~/stat139-job-tools/, the job in squeue, and stat139-<jobid>.out.
+  # Must also be listed under form:.
   course_slug: "stat139"
 
   custom_num_cores:

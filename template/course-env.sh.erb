@@ -1,17 +1,19 @@
+<%#
+  Model for the file that scripts/provision-course-env.sh writes into the course
+  folder. Kept so the values still render from the sub-app form for a course that
+  has not been provisioned yet. Delete once provisioning owns the file for every
+  course.
+-%>
 <%-
   _rlib   = context.respond_to?('r_libpath') ? context.r_libpath.to_s : ''
   _img    = context.respond_to?('imagefile') ? context.imagefile.to_s : ''
   _image  = _img.empty? ? '' : "/shared/apptainerImages/#{_img}"
 -%>
-# NOT INSTALLED BY A SESSION. This is the model for the file that
-# scripts/provision-course-env.sh writes into the course folder. It is kept so
-# the values stay renderable from the sub-app form for a course that has not been
-# provisioned yet; delete it once provisioning owns the file for every course.
+# Written by provisioning. Do not edit by hand.
 #
-# IMAGE and R_LIB are the only two values a batch job needs that differ between
-# courses. They live in the course folder rather than inside run-r-job.sh so that
-# a student's own copy of that script cannot go stale: the wrapper reads this
-# file every time it runs, so changing either value here reaches every copy at
-# once, including copies taken months earlier.
+# The two values a batch job needs that differ between courses. They live in the
+# course folder rather than inside run-r-job.sh so a student's own copy of that
+# script cannot go stale - the wrapper reads this file every time it runs, so
+# changing either value here reaches every copy, however old.
 IMAGE=<%= _image %>
 R_LIB=<%= _rlib %>

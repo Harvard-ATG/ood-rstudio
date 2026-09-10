@@ -107,7 +107,7 @@ The files `/etc/passwd` and `/etc/group` translate between the two:
 - `/etc/passwd` maps usernames to numeric user IDs and primary group IDs.
 - `/etc/group` maps group names to numeric group IDs and group membership.
 
-The names and numbers below are illustrative.
+The names and numbers in this example are illustrative.
 
 Suppose a student named **Maya Chen** has the NetID `mch247`:
 
@@ -287,7 +287,7 @@ export APPTAINERENV_SLURM_CONF="/opt/slurm/etc/slurm.conf"
 ```
 
 RStudio rebuilds parts of its environment when it starts a Terminal or an R
-session. The settings above are therefore not enough by themselves.
+session. The `APPTAINERENV_` exports are therefore not enough by themselves.
 
 The app also:
 
@@ -297,18 +297,17 @@ The app also:
 
 **The second does not reach R.** Measured 2026-09-10: RStudio replaces `PATH`
 for the session after that wrapper runs, so `Sys.getenv("PATH")` in the console
-holds RStudio's own directories and nothing of Slurm's. A bare
-`system("sbatch ...")` therefore fails.
+holds RStudio's own directories and nothing of Slurm's.
 
-Submitting from the R console still works — the command is present and only the
-`PATH` entry is missing, so give the full path:
+From the R console, a bare call fails. Include the path and it works:
 
 ```r
-system("/opt/slurm/bin/sbatch ~/<course>-job-tools/run-r-job.sh hw3.R")
+system("sbatch ...")                     # fails - not on R's PATH
+system("/opt/slurm/bin/sbatch ~/stat139-job-tools/run-r-job.sh hw3.R")   # works
 ```
 
-The Terminal pane needs no such thing, because login shells source the
-`profile.d` drop-in. That is the route the student documentation gives.
+The Terminal pane needs no path, because login shells source the `profile.d`
+drop-in. That is the route the student documentation gives.
 
 If `/opt/slurm/bin/sbatch` exists but `sbatch` says `command not found`, check
 the environment and `PATH`, not the bind itself. A useful tell is that
@@ -361,17 +360,18 @@ admin alike. There is no write test and no per-role branch: the destination is
 the user's own home, so writability is not in question, and a student who never
 receives a copy has nothing to run.
 
-Only the two names above are replaced. Everything else in that folder is left
-alone, which is what makes the supported instruction safe:
+Only `run-r-job.sh` and `README.md` are replaced. Everything else in that
+folder is left alone.
+
+That is what makes the supported instruction safe: a user can copy the wrapper,
+rename the copy, and edit that. `run-my-job.sh` is never touched. Editing
+`run-r-job.sh` in place loses the change at the next launch, with no warning,
+which is why the wrapper's own header says so first, in a box, before anything
+else:
 
 ```bash
 cp ~/stat139-job-tools/run-r-job.sh run-my-job.sh
 ```
-
-Copy it, rename it, edit the copy. `run-my-job.sh` is never touched. Edit
-`run-r-job.sh` in place and the change is gone at the next launch, with no
-warning — which is why the wrapper's own header says so first, in a box, before
-it says anything else.
 
 A student needs no copy at all in order to run a job. The wrapper is submitted by
 path, from wherever they are working:
@@ -381,15 +381,6 @@ sbatch ~/stat139-job-tools/run-r-job.sh hw3.R
 ```
 
 Copying is for people who want to change it.
-
-This replaces an earlier design in which the canonical copy lived in the course
-folder and was refreshed only when a member of the teaching staff launched the
-app. Two things were wrong with it. Students had to copy a file before they could
-do anything, which is a step that can be got wrong and a file that can go stale;
-and if no staff member ever opened the app, the folder simply did not exist, with
-no error and nothing to report it — the first sign was a student asking where the
-script was. Writing into home removes both, along with the separate test copy
-admins used to get, since they now exercise the same path as everyone else.
 
 ### Where the values live
 
@@ -417,9 +408,9 @@ The course folder is derived from `r_libpath`: `r_libpath` is
 folder.
 
 That one file in one shared place is what lets a copy a student took in week 2
-run under week 9's image without the student doing anything. The two assignments
-above it are a fallback for a course being tested before its folder is
-provisioned; every course starts in that state.
+run under week 9's image without the student doing anything. The `IMAGE` and
+`R_LIB` assignments in the wrapper are a fallback for a course being tested
+before its folder is provisioned; every course starts in that state.
 
 > **`course-env.sh` is written by provisioning, not by a session.** It belongs to
 > the course rather than to any one person, so no launch writes it —
@@ -517,164 +508,27 @@ apptainer exec --home "$HOME" $_BINDS \
   "$IMAGE" Rscript "$@"
 ```
 
-**Both libraries, the user's own first and the course library second.** Passing
-only the course library would replace the user's rather than add to it, and a
-package a student installed themselves would then load in the console and fail
-in their job. Nothing would explain the difference: the path is simply present
-in one `.libPaths()` and absent from the other. R expands `%p` and `%v` itself,
-so the value stays correct across image upgrades, and R drops a path it cannot
-read or that does not exist without complaining.
+**`R_LIBS_USER`** — the user's own library first, the course library second.
 
-**`--env R_LIBS=` — note the empty value — is what puts those two libraries
-first.** The image sets `R_LIBS` to its own two library folders, and R searches
-`R_LIBS` before `R_LIBS_USER`, so without this the image outranks both the
-user's library and the course's. Any package name they share resolves from the
-image.
+- Passing only the course library would replace the user's, not add to it.
+- `%p` and `%v` are left for R to expand, so the value survives image upgrades.
+- R drops a library path it cannot read, or that does not exist, without a word.
 
-That is not a small ordering preference. Before this was set, the STAT 139
-course library held two packages and R was loading both from the image — the
-course library had never served a package to anyone, while appearing on
-`.libPaths()` the whole time.
+**`R_LIBS=`** — must be set **empty, not unset**.
 
-It has to be set to an empty value, not removed. The image's `Renviron.site`
-substitutes its own libraries when `R_LIBS` is **unset**, so unsetting the
-variable puts them straight back in front. Setting it empty skips that default.
-Nothing becomes unreachable either way: the image's packages still resolve
-through `R_LIBS_SITE` and `.Library`, behind the user's and the course's rather
-than ahead of them.
+- Unset, the image's `Renviron.site` puts its own libraries back in front.
+- Without it the image outranks both the user's library and the course's, and
+  any shared package name resolves from the image.
+- Before this was set, STAT 139's course library had never served a package.
+- Nothing becomes unreachable: the image's packages return through
+  `R_LIBS_SITE` and `.Library`, behind the other two.
 
-**`--home "$HOME"` is what makes `~` mean the same thing in a job as in the
-session.** Apptainer owns home mounting and takes the directory from the passwd
-entry unless told otherwise, which on these nodes points somewhere other than
-the user's home on shared storage. `--env HOME=` does not work — apptainer
-reserves that variable and refuses it, warning on every job.
+**`--home "$HOME"`** — makes `~` mean the same thing in a job as in the session.
 
-So `sbatch run-r-job.sh my_script.R` finds the course packages from the RStudio
-Terminal, from the shell app, or from anywhere else. Only a bare `sbatch`
+- Apptainer otherwise takes home from the passwd entry, which on these nodes is
+  not the user's home on shared storage.
+- `--env HOME=` does not work: apptainer reserves the variable and refuses it.
+
+Together these make `sbatch run-r-job.sh my_script.R` find the course packages
+from the Terminal, the shell app, or anywhere else. Only a bare `sbatch`
 depends on where it was submitted from.
-
-## Troubleshooting
-
-<details>
-<summary><strong>Every Slurm command fails with <code>Invalid user for SlurmUser slurm</code></strong></summary>
-
-**Cause:** The Slurm client cannot resolve the `slurm` service account because
-the image's `/etc/passwd` does not contain it. The client refuses to start at
-all, with `fatal: Unable to process configuration file`.
-
-**Check:** Inspect the generated passwd file and confirm it includes `slurm`
-and the launching user.
-
-**Fix:** Generate merged passwd and group files, then bind them over the
-container's `/etc/passwd` and `/etc/group`.
-</details>
-
-<details>
-<summary><strong>The Slurm injection block does nothing</strong></summary>
-
-**Cause:** `slurm_enabled` is present under `attributes:` but absent from
-`form:`. The value never reaches `context`, so the ERB guard evaluates false.
-
-**Fix:** List the value under both `attributes:` and `form:`. This is the
-easiest mistake to make and the hardest to spot, because there is no error.
-</details>
-
-<details>
-<summary><strong><code>sbatch: command not found</code>, but <code>/opt/slurm/bin/sbatch</code> exists</strong></summary>
-
-**Cause:** The bind worked, but the `PATH` in use does not include
-`/opt/slurm/bin`.
-
-In a **Terminal** shell that means the `profile.d` drop-in is not being sourced
-— check that it is bound, and that the shell is a login shell.
-
-In the **R console** it is expected. RStudio rebuilds `PATH` for the session, so
-`/opt/slurm/bin` never reaches R however the wrapper exports it.
-
-**Fix:** From a Terminal, confirm the drop-in is bound. From R, use the full
-path, which works because only the `PATH` entry is missing and not the command:
-
-```r
-system("/opt/slurm/bin/sbatch ~/<course>-job-tools/run-r-job.sh hw3.R")
-```
-</details>
-
-<details>
-<summary><strong>Batch jobs cannot see files in the user's home directory</strong></summary>
-
-**Cause:** Apptainer takes the home directory from the passwd entry, which on
-these nodes says `/home/<netid>`, while the user's real home is
-`/shared/home/<netid>`. It mounts the first of those and sets `HOME` to it, so
-`~` inside the job means a different directory from `~` in the session.
-
-`/home/<netid>` is not empty and not fabricated — it is a real directory on the
-head node's system disk, served to the compute nodes over NFS. So a write to
-`~` succeeds and the file persists somewhere the student cannot see from
-RStudio, on a 90GB filesystem shared with `slurmctld`. Relative paths keep
-working, because the job's working directory is handed in separately, which is
-what hides the problem until someone uses `~`.
-
-The sharpest symptom is that `~/<canvas-id>` does not resolve. That symlink is
-created in the **real** home at first login, so it is absent from the home
-apptainer chose — which breaks the one route to the course folder that every
-instruction gives students, while absolute paths work fine.
-
-**Fix:** Pass `--home`, which sets the mounted directory and `HOME` together:
-
-```bash
-apptainer exec --home "$HOME" ... "$IMAGE" Rscript "$@"
-```
-
-The bind below is kept as well, guarded against an unset or invalid value — an
-empty `$HOME` would expand to a bare `-B` and apptainer rejects the whole
-command rather than skipping the mount:
-
-```bash
-[ -n "$HOME" ] && [ -d "$HOME" ] && _BINDS="$_BINDS -B $HOME"
-```
-
-**A bind alone does not fix this.** It makes the path visible, which is why the
-course library and the user's own package library work by absolute path, but it
-does not change what `~` means. That was the state for some time: every absolute
-route worked and `~` was wrong.
-
-The problem is not specific to any one course: any Apptainer app running a plain
-`apptainer exec` on these nodes has it.
-</details>
-
-<details>
-<summary><strong>A job sees the course library but cannot load a compiled package</strong></summary>
-
-**Cause:** The job is using the compute node's system R instead of the R inside
-the course container.
-
-**Fix:** Submit through `run-r-job.sh`, which starts the configured Apptainer
-image and runs `Rscript` inside it.
-</details>
-
-## Reference
-
-- Open OnDemand passes only `form:`-listed attributes into `context`.
-- `template/` files are staged into `${JOBROOT}`; `before.sh` sets
-  `export JOBROOT=$PWD`.
-- Use shared image paths. A node-local image cache may not exist on the node
-  selected for the batch job.
-- R silently drops package-library paths it cannot read, as well as ones that do
-  not exist, so the order of provisioning does not matter — but a permissions
-  problem and a missing directory look identical from `.libPaths()`. An expired
-  course-group membership presents as a missing library.
-- R searches `R_LIBS` before `R_LIBS_USER`. The image sets `R_LIBS`, so it must
-  be set to an empty value for the course library to win a name collision.
-  Unsetting it is not equivalent: `Renviron.site` restores the image's folders
-  when the variable is unset.
-- The portal cannot submit Slurm jobs; it cannot contact `slurmctld`. Submit
-  from the head node or from an app session.
-- `sudo` resets `PATH`. Use `/opt/slurm/bin/sbatch` under `sudo -u`.
-- Group enumeration works on the portal and not on compute nodes. Per-name
-  lookups work everywhere.
-- The job-tools folder is in the user's own home and is refreshed on every
-  launch. Only `run-r-job.sh` and `README.md` are replaced; anything else in it
-  is left alone.
-- `~/<canvas-id>` is a symlink to the read-only course folder. Nothing can be
-  written beneath it, which is why the job-tools folder is named for the course
-  rather than for the Canvas id.

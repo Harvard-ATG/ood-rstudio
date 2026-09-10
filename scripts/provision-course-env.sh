@@ -1,27 +1,33 @@
 #!/usr/bin/env bash
-# Provisions one course's batch-job configuration: the R library directory, and
-# the course-env.sh that run-r-job.sh reads at run time.
+# Creates a course's R library directory and the course-env.sh that run-r-job.sh
+# reads at run time. One course per run.
 #
-#   provision-course-env.sh --canvas-id <id> --image <imagefile> \
-#       [--r-version <ver>] [--arch <arch>] [--dry-run]
+# course-env.sh holds the current image and course library. The wrapper reads it
+# on every run rather than baking the values in, so changing the image here
+# reaches every copy a student has taken, however old. Without the file the
+# wrapper uses values frozen when the session rendered it - which works, but
+# silently loses that property.
 #
-# RUN ON THE HEAD NODE, AS ROOT. The course folder is 2775, owned by the course
-# staff group, and its parent is 750 owned by the enrollment group -- so an
-# administrator who is not in those groups cannot traverse to it at all. root on
-# the head node is the only context that reliably can.
+# Needs no compute and no container: it writes two values and makes a directory.
+# Unlike the provisioning in ood-apptainer-apps, it is not an sbatch job.
 #
-# Unlike the environment provisioning in ood-apptainer-apps, this needs no
-# compute and no container: it writes two values and makes a directory. It is
-# deliberately NOT an sbatch job.
-#
-# WHY IT EXISTS AT ALL. course-env.sh names the current image and course
-# library. The wrapper reads it on every run rather than baking the values in,
-# so changing the image here reaches every copy a student has ever taken --
-# including one taken months earlier. Without this file the wrapper falls back
-# to values frozen when the session rendered it, which works but silently loses
-# that property.
+# RUN ON THE HEAD NODE, AS ROOT. The course folder's parent is 750 and owned by
+# the enrollment group, so an administrator outside the course groups cannot
+# traverse to it at all.
 #
 # Safe to re-run. Rewrites course-env.sh; leaves an existing library alone.
+#
+#   provision-course-env.sh --canvas-id <id> --image <file> \
+#       [--r-version <ver>] [--arch <arch>] [--dry-run]
+#
+# Defaults:
+#   --r-version   4.5                        must match the image's R
+#   --arch        x86_64-pc-linux-gnu
+#   course root   /shared/courseSharedFolders    override: OOD_COURSE_SHARED_ROOT
+#   image root    /shared/apptainerImages        override: OOD_IMAGE_ROOT
+#
+# The two roots are overridable so the script can be exercised against a fake
+# tree without a real /shared.
 set -uo pipefail
 
 this_script="scripts/provision-course-env.sh"
@@ -46,6 +52,9 @@ usage: $0 --canvas-id <id> --image <imagefile> [--r-version <ver>] [--arch <arch
                 package in it, silently.
   --arch        R platform string, default x86_64-pc-linux-gnu
   --dry-run     print what would be written and change nothing
+
+Roots default to /shared/courseSharedFolders and /shared/apptainerImages, and
+are overridable with OOD_COURSE_SHARED_ROOT and OOD_IMAGE_ROOT for testing.
 USAGE
     exit 64
 }

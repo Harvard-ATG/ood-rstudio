@@ -1,3 +1,7 @@
+<%#
+  Rendered at launch and installed as ~/<course_slug>-job-tools/README.md.
+  The instructions a student reads while working.
+-%>
 <%-
   _rlib   = context.respond_to?('r_libpath') ? context.r_libpath.to_s : ''
   _course = _rlib.sub(%r{/R/.*\z}, '')

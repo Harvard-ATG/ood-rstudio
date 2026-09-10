@@ -87,13 +87,13 @@ sed 's/^ \{2\}//' > "$WORKING_DIR/rsession.sh" << EOL
   # Kept because removing it is an untested change to a working session, not
   # because it is known to help.
   #
-  # Submitting from the R console still WORKS - it just needs the full path,
-  # because the command is present and only PATH is missing it:
+  # The console can still submit. A bare call fails; include the path and it
+  # works, because only the PATH entry is missing and not the command:
   #
-  #     system("/opt/slurm/bin/sbatch ~/<course>-job-tools/run-r-job.sh hw3.R")
+  #     system("sbatch ...")                                  fails
+  #     system("/opt/slurm/bin/sbatch <tools>/run-r-job.sh hw3.R")   works
   #
-  # Confirmed by jobs 990 and 991, submitted that way from the console. A bare
-  # system("sbatch ...") fails, since R cannot find it on PATH.
+  # Confirmed by jobs 990 and 991, submitted that way from the console.
   #
   # Terminal shells are unaffected: they source /etc/profile.d/zz-slurm.sh, which
   # this script binds in, so plain sbatch works there. That is the route the
