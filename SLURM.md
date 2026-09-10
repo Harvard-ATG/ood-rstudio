@@ -497,16 +497,43 @@ the container:
 
 ```bash
 _R_LIBS="$HOME/R/%p-library/%v:$R_LIB"
-apptainer exec $_BINDS --env R_LIBS_USER="$_R_LIBS" "$IMAGE" Rscript "$@"
+apptainer exec --home "$HOME" $_BINDS \
+  --env R_LIBS_USER="$_R_LIBS" \
+  --env R_LIBS= \
+  "$IMAGE" Rscript "$@"
 ```
 
-**Both libraries, in the order the RStudio session uses them** — the user's own
-first, the course library second. Passing only the course library would replace
-the user's rather than add to it, and a package a student installed themselves
-would then load in the console and fail in their job. Nothing would explain the
-difference: the path is simply present in one `.libPaths()` and absent from the
-other. R expands `%p` and `%v` itself, so the value stays correct across image
-upgrades, and R drops a path that does not exist without complaining.
+**Both libraries, the user's own first and the course library second.** Passing
+only the course library would replace the user's rather than add to it, and a
+package a student installed themselves would then load in the console and fail
+in their job. Nothing would explain the difference: the path is simply present
+in one `.libPaths()` and absent from the other. R expands `%p` and `%v` itself,
+so the value stays correct across image upgrades, and R drops a path it cannot
+read or that does not exist without complaining.
+
+**`--env R_LIBS=` — note the empty value — is what puts those two libraries
+first.** The image sets `R_LIBS` to its own two library folders, and R searches
+`R_LIBS` before `R_LIBS_USER`, so without this the image outranks both the
+user's library and the course's. Any package name they share resolves from the
+image.
+
+That is not a small ordering preference. Before this was set, the STAT 139
+course library held two packages and R was loading both from the image — the
+course library had never served a package to anyone, while appearing on
+`.libPaths()` the whole time.
+
+It has to be set to an empty value, not removed. The image's `Renviron.site`
+substitutes its own libraries when `R_LIBS` is **unset**, so unsetting the
+variable puts them straight back in front. Setting it empty skips that default.
+Nothing becomes unreachable either way: the image's packages still resolve
+through `R_LIBS_SITE` and `.Library`, behind the user's and the course's rather
+than ahead of them.
+
+**`--home "$HOME"` is what makes `~` mean the same thing in a job as in the
+session.** Apptainer owns home mounting and takes the directory from the passwd
+entry unless told otherwise, which on these nodes points somewhere other than
+the user's home on shared storage. `--env HOME=` does not work — apptainer
+reserves that variable and refuses it, warning on every job.
 
 So `sbatch run-r-job.sh my_script.R` finds the course packages from the RStudio
 Terminal, from the shell app, or from anywhere else. Only a bare `sbatch`
@@ -551,21 +578,44 @@ generated `rsession.sh` exports the required path for the R console.
 <details>
 <summary><strong>Batch jobs cannot see files in the user's home directory</strong></summary>
 
-**Cause:** Apptainer creates an empty home directory when the node-reported
-home path does not match the real shared home path. The compute nodes report
-homes as `/home/<netid>` while the real path is `/shared/home/<netid>`, so
-Apptainer has nothing valid to mount. Relative paths still work because the job
-working directory is available, which hides the problem.
+**Cause:** Apptainer takes the home directory from the passwd entry, which on
+these nodes says `/home/<netid>`, while the user's real home is
+`/shared/home/<netid>`. It mounts the first of those and sets `HOME` to it, so
+`~` inside the job means a different directory from `~` in the session.
 
-**Fix:** Explicitly bind `$HOME`, guarded against an unset or invalid value:
+`/home/<netid>` is not empty and not fabricated — it is a real directory on the
+head node's system disk, served to the compute nodes over NFS. So a write to
+`~` succeeds and the file persists somewhere the student cannot see from
+RStudio, on a 90GB filesystem shared with `slurmctld`. Relative paths keep
+working, because the job's working directory is handed in separately, which is
+what hides the problem until someone uses `~`.
+
+The sharpest symptom is that `~/<canvas-id>` does not resolve. That symlink is
+created in the **real** home at first login, so it is absent from the home
+apptainer chose — which breaks the one route to the course folder that every
+instruction gives students, while absolute paths work fine.
+
+**Fix:** Pass `--home`, which sets the mounted directory and `HOME` together:
+
+```bash
+apptainer exec --home "$HOME" ... "$IMAGE" Rscript "$@"
+```
+
+The bind below is kept as well, guarded against an unset or invalid value — an
+empty `$HOME` would expand to a bare `-B` and apptainer rejects the whole
+command rather than skipping the mount:
 
 ```bash
 [ -n "$HOME" ] && [ -d "$HOME" ] && _BINDS="$_BINDS -B $HOME"
 ```
 
-This bind also makes the user's own R package library under `$HOME/R/...`
-available inside batch jobs. The problem is not specific to any one course: any
-Apptainer app running a plain `apptainer exec` on these nodes has it.
+**A bind alone does not fix this.** It makes the path visible, which is why the
+course library and the user's own package library work by absolute path, but it
+does not change what `~` means. That was the state for some time: every absolute
+route worked and `~` was wrong.
+
+The problem is not specific to any one course: any Apptainer app running a plain
+`apptainer exec` on these nodes has it.
 </details>
 
 <details>
@@ -585,8 +635,14 @@ image and runs `Rscript` inside it.
   `export JOBROOT=$PWD`.
 - Use shared image paths. A node-local image cache may not exist on the node
   selected for the batch job.
-- R silently drops nonexistent package-library paths from `.libPaths()`, so the
-  order of provisioning does not matter.
+- R silently drops package-library paths it cannot read, as well as ones that do
+  not exist, so the order of provisioning does not matter — but a permissions
+  problem and a missing directory look identical from `.libPaths()`. An expired
+  course-group membership presents as a missing library.
+- R searches `R_LIBS` before `R_LIBS_USER`. The image sets `R_LIBS`, so it must
+  be set to an empty value for the course library to win a name collision.
+  Unsetting it is not equivalent: `Renviron.site` restores the image's folders
+  when the variable is unset.
 - The portal cannot submit Slurm jobs; it cannot contact `slurmctld`. Submit
   from the head node or from an app session.
 - `sudo` resets `PATH`. Use `/opt/slurm/bin/sbatch` under `sudo -u`.

@@ -158,6 +158,21 @@ _BINDS="-B /shared/courseSharedFolders"
 # no personal library loses nothing by this.
 _R_LIBS="$HOME/R/%p-library/%v:$R_LIB"
 
-apptainer exec $_BINDS \
+# --home, because apptainer will not accept HOME any other way. It owns home
+# mounting, so it sets HOME from the passwd entry whatever the host held. Here
+# that entry says /home/<netid>, which is NFS-mounted from the head node's ROOT
+# filesystem - a different directory from the user's real home on shared storage,
+# invisible from RStudio, and 90G shared with slurmctld.
+#
+# --env HOME= does NOT work: apptainer translates it to APPTAINERENV_HOME and
+# refuses that variable outright, saying so in a warning on every job.
+#
+# What this fixes, measured: ~/<canvas-id>/hw3-bootstrap.R was UNREADABLE while
+# the same file via /shared/home/<user>/<canvas-id>/ read fine. Same symlink,
+# two routes - so the course folder was never unreachable, and ~ mis-expanding
+# broke precisely the path every instruction gives students. A ~ write landed on
+# the head node's disk where the student could not see it.
+apptainer exec --home "$HOME" $_BINDS \
   --env R_LIBS_USER="$_R_LIBS" \
+  --env R_LIBS= \
   "$IMAGE" Rscript "$@"

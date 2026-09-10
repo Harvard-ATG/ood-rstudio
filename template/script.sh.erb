@@ -65,6 +65,18 @@ sed 's/^ \{2\}//' > "$WORKING_DIR/rsession.sh" << EOL
   set -x
 
   export R_LIBS_SITE="${R_LIBS_SITE}"
+  # R_LIBS_USER was the one omission from this list, and the list exists
+  # because rserver sanitizes the environment before spawning this wrapper.
+  # Tested: with neither this export nor the --r-libs-user flag, the course
+  # library vanishes from .libPaths() and only R's self-computed default user
+  # library remains. Either fixes it; this is the same treatment R_LIBS_SITE,
+  # HOME and TZ already get, and unlike the flag it also reaches the Terminal
+  # pane and anything else rsession starts.
+  #
+  # Reading a future test: R computes its own default user library from HOME,
+  # so a home library appearing in .libPaths() is NOT evidence the variable
+  # arrived. Only the course library being present shows that.
+  export R_LIBS_USER="${R_LIBS_USER}"
   export TZ="US/Eastern"
   <% if context.respond_to?('slurm_enabled') && context.slurm_enabled.to_s == "true" %>
   # Slurm-enabled sub-apps only: RStudio rebuilds PATH for the session, so this
@@ -82,22 +94,29 @@ sed 's/^ \{2\}//' > "$WORKING_DIR/rsession.sh" << EOL
   
   env
 
+  # The image's own Renviron.site sets, on line 1:
+  #
+  #     R_LIBS=\${R_LIBS-<the image's two library folders>}
+  #
+  # Note the SINGLE dash. That default is substituted only when R_LIBS is UNSET;
+  # a variable that is set-but-empty skips it. And R searches R_LIBS BEFORE
+  # R_LIBS_USER, so those image folders outranked both the user's library and the
+  # course's - which is why digest and praise resolved from the image and the
+  # course library had never served a package to anyone.
+  #
+  # Assigned empty, therefore, and deliberately NOT unset: "unset R_LIBS" is the
+  # one case that default exists to catch, and R puts the image folders straight
+  # back in front. This was tried first and failed exactly that way.
+  #
+  # Nothing becomes unreachable. The image's folders return at their normal
+  # priority through R_LIBS_SITE and .Library, behind the user and course
+  # libraries instead of ahead of them.
+  export R_LIBS=""
+
   echo "Launching rsession..."
-  # The --r-libs-user flag is REQUIRED. Removing it was tried and reverted.
-  #
-  # R_LIBS_USER is exported earlier in this file and it does reach this wrapper -
-  # the env dump above shows it. But rserver starts rsession as a further
-  # process and does not pass it down, the same way it does not pass down PATH.
-  # Without the flag, R falls back to computing its own default user library and
-  # the course library disappears from .libPaths() entirely:
-  #
-  #   [1] /shared/home/<netid>/R/x86_64-pc-linux-gnu-library/4.5   <- R's default
-  #   [2] /usr/local/lib/R/site-library
-  #   [3] /usr/local/lib/R/library                                 <- no course lib
-  #
-  # The tell is that [1] is exactly what R computes from $HOME on its own, so a
-  # home library in the list is not evidence the variable arrived.
-  exec rsession --r-libs-user "${R_LIBS_USER}" "\${@}"
+  # No --r-libs-user flag: the export above does the same job. See the comment
+  # beside it for what was tested.
+  exec rsession "\${@}"
 EOL
 )
 chmod 700 "$WORKING_DIR/rsession.sh"
@@ -105,7 +124,12 @@ chmod 700 "$WORKING_DIR/rsession.sh"
 # server log directory
 mkdir -p "$WORKING_DIR/logs"
 
-APPTAINER_HOME=$HOME
+# APPTAINER_HOME was assigned here without export, so apptainer never received
+# it - inert since it was written, while looking like the mechanism that made
+# the session's home correct. It isn't: before.sh sets HOME and the rsession
+# wrapper exports it inside the container. Removed rather than exported,
+# because exporting it would change a working session's home mounting for no
+# gain. The batch wrapper needs the same capability and uses --home directly.
 
 # Bind folders to the container file system
 SING_BIND_LIST=(

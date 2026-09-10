@@ -1,6 +1,8 @@
 <%-
   _rlib   = context.respond_to?('r_libpath') ? context.r_libpath.to_s : ''
   _course = _rlib.sub(%r{/R/.*\z}, '')
+  _canvas = _course.split('/').last.to_s
+  _canvas = '<course>' if _canvas.empty?
   _slug   = context.respond_to?('course_slug') ? context.course_slug.to_s : ''
   _slug   = 'course' if _slug.empty?
   _tools  = "~/#{_slug}-job-tools"
@@ -48,8 +50,8 @@ That number is your **job ID**.
 **4. Wait, then read the output.**
 
 ```bash
-squeue -u $USER                 # still running? empty means it finished
-cat <%= _slug %>-12345.out               # what your script printed
+squeue -u $USER              # still running? empty means it finished
+cat <%= _slug %>-12345.out        # 12345 is YOUR job id from step 3, not a literal
 ```
 
 That is the whole thing. You do not have to copy the script, edit it, or set
@@ -79,7 +81,7 @@ The defaults are **1 CPU** and **15 minutes**. If your job needs more, say so on
 the command line:
 
 ```bash
-sbatch -c 4 -t 02:00:00 run-r-job.sh hw3.R
+sbatch -c 4 -t 02:00:00 <%= _tools %>/run-r-job.sh hw3.R
 ```
 
 | Option | Means | Example |
@@ -111,7 +113,7 @@ warning. Ask for more time with `-t` and submit it again.
 Anything after the script name is given to the script:
 
 ```bash
-sbatch run-r-job.sh analysis.R data.csv 10000
+sbatch <%= _tools %>/run-r-job.sh analysis.R data.csv 10000
 ```
 
 Read them in R with:
@@ -173,34 +175,90 @@ Broke something? Open RStudio again. A correct copy comes back.
 
 ---
 
-## Why a wrapper at all
+## Why you need run-r-job.sh instead of just running your script
 
-Your RStudio session runs inside a container image — a fixed R and a fixed set
-of packages, the same for everyone in the course. A batch job runs on a
-different machine, which has an R of its own and none of the course packages.
-Left alone, your job would use the wrong R and fail to find things that work
-perfectly in the console.
+Your RStudio session does not run directly on the machine you are connected to.
+It runs inside a **container** — think of it as a sealed box holding one exact
+version of R and one exact set of packages, identical for everyone in the
+course. That is what makes your results reproducible.
 
-The wrapper closes that gap. It runs your script:
+A batch job runs on a *different* machine, and that machine is outside the box.
+It has its own copy of R, an older one, and none of the course packages. So if
+you handed your script straight to the cluster, three things would go wrong,
+and none of them would look like an error:
 
-- in the course image, `<%= _image %>`, so the R version is the one you have been using;
-- with the course package library on `.libPaths()`, so `library(...)` works;
-- with your own package library too, so anything you installed yourself still loads;
-- with your home directory visible, so your files and paths are where you expect.
+- your script would run under the wrong version of R;
+- `library(...)` would fail for packages that work fine in your console;
+- `~` would point somewhere other than your home directory, so files you save
+  would go missing.
 
-If you would rather run it by hand, this is what it comes down to:
+`run-r-job.sh` exists to prevent that. It opens the same box on the other
+machine before running your code, so a job behaves the way your console does.
+
+Concretely, it makes sure your job gets:
+
+- the course's version of R, `<%= _image %>`;
+- the course's packages, so `library(...)` works;
+- your own packages, so anything you installed yourself still loads;
+- your real home directory, so `~/my-file.csv` and `~/<%= _canvas %>` mean what you expect.
+
+You do not need to know how it does that. If you are curious, it comes down to
+this — the same commands, run for you:
 
 ```bash
 . /shared/spack/share/spack/setup-env.sh
 spack env activate apptainer
-apptainer exec -B /shared/courseSharedFolders -B "$HOME" \
+apptainer exec --home "$HOME" \
+  -B /shared/courseSharedFolders -B "$HOME" \
   --env R_LIBS_USER="$HOME/R/%p-library/%v:<%= _rlib %>" \
+  --env R_LIBS= \
   <%= _image %> Rscript hw3.R
 ```
 
-The wrapper does exactly that, and reads the image and library paths from the
-course at run time — so a copy you made in September still uses the right ones
-in November.
+One useful detail: the version of R and the location of the course packages are
+looked up when the job runs, not when the file was written. So a copy you made
+in September still picks up the right ones in November.
+
+---
+
+## Checking what R can see
+
+If `library(something)` fails, or a job gives different results from your
+console, this is the first thing to run — in the Console, the Terminal, or
+inside a job:
+
+```r
+.libPaths()
+```
+
+It lists the folders R searches for packages, **in order**. R uses the first
+copy it finds. You should see four:
+
+```text
+[1] /shared/home/<you>/R/...-library/4.5     your own packages
+[2] <%= _rlib.sub(%r{/R/.*\z}, '') %>/R/...-library/4.5
+                                            the course's packages
+[3] /usr/local/lib/R/site-library           came with the course image
+[4] /usr/local/lib/R/library                base R
+```
+
+`[2]` is the course library — the packages the teaching staff installed for
+everyone. `[1]` is yours, from anything you have run `install.packages()` on.
+
+**If you see only three and `[2]` is missing**, R could not read the course
+folder. That is almost always a permissions problem rather than anything you
+did — your course access may not have come through yet. Say so on the course
+forum rather than reinstalling packages.
+
+To find out which copy of a package you are actually getting:
+
+```r
+find.package("digest")
+```
+
+If that returns a path under `[2]`, you have the course's copy. If it returns
+one under `[3]` or `[4]`, you have the image's, which may be a different
+version.
 
 ---
 
@@ -210,7 +268,7 @@ in November.
 |---|---|
 | `sbatch: command not found` | You are in the wrong place — use the **Terminal** pane inside RStudio, not the Console. |
 | No `.out` file at all | The job has not started yet. Check `squeue -u $USER`. |
-| `there is no package called '...'` | The package is not in the course library. Install it in the RStudio console with `install.packages()` — it goes into your own library, which jobs can see. |
+| `there is no package called '...'` | Run `.libPaths()` first — if you only see three folders, it is a permissions problem, not a missing package. If all four are there, the package genuinely is not installed: `install.packages()` in the Console puts it in your own library, which jobs can see. |
 | Output stops in the middle | The job hit the time limit. Resubmit with a longer `-t`. |
 | The job ignored your `-c` or `-t` | The option came after the script name. See above. |
 | `run-r-job.sh: No such file` | Use the full path: `<%= _tools %>/run-r-job.sh`. |
