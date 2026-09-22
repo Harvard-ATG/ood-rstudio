@@ -52,34 +52,9 @@ export RSTUDIO_AUTH="$WORKING_DIR/bin/auth"
 R_LIBS_USER="/shared/home/$USER/R/%p-library/%v"
 <%= context.respond_to?('r_libpath') ? "export R_LIBS_USER=\"${R_LIBS_USER}:#{context.r_libpath}\"" : "" %>
 
-# Create the user's own library if it does not exist yet.
-#
-# R computes this path from HOME whether or not R_LIBS_USER names it, but it
-# only adds a directory to .libPaths() if that directory EXISTS when R starts.
-# Nothing else creates it: not add_user.sh, not logging in, not this launch. The
-# only thing that did was an interactive install.packages(), where R offers to
-# make a personal library and the user accepts - so in the console a student
-# recovers on their own, and in a batch job Rscript has no prompt to accept and
-# no writable library on .libPaths(), so the install just fails.
-#
-# MEASURED in production 2026-09-22: of 152 students enrolled in STAT 139, the
-# eight with home directories had no ~/R at all, and a student session showed
-# three library paths instead of four. Creating this one directory produced the
-# expected four, in the right order, with no other change.
-#
-# %p and %v are R's placeholders, not the shell's, so the path is derived from
-# r_libpath - which already ends in the resolved <arch>-library/<version>. Taking
-# the tail from there means the user library always matches the course library's
-# architecture and R version, rather than guessing them here and drifting when
-# the image moves.
-#
-# mkdir -p is idempotent: an existing directory is left exactly as it is.
 <% if context.respond_to?('r_libpath') %>
-_R_USER_LIB_TAIL="<%= context.r_libpath.to_s.sub(%r{\A.*/R/}, '') %>"
-if [ -n "$_R_USER_LIB_TAIL" ]; then
-  mkdir -p "/shared/home/$USER/R/${_R_USER_LIB_TAIL}" 2>/dev/null \
-    || echo "note: could not create the user R library; .libPaths() will show one fewer entry"
-fi
+# R only adds a library to .libPaths() if the directory already exists, and nothing else creates this one.
+mkdir -p "/shared/home/$USER/R/<%= context.r_libpath.to_s.sub(%r{\A.*/R/}, '') %>" 2>/dev/null || true
 <% end %>
 
 # Generate an `rsession` wrapper script
