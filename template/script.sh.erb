@@ -49,13 +49,12 @@ export WORKING_DIR="<%= session_dir %>"
 export RSTUDIO_AUTH="$WORKING_DIR/bin/auth"
 
 # Set up R library paths
-R_LIBS_USER="/shared/home/$USER/R/%p-library/%v"
-<%= context.respond_to?('r_libpath') ? "export R_LIBS_USER=\"${R_LIBS_USER}:#{context.r_libpath}\"" : "" %>
-
 <% if context.respond_to?('r_libpath') %>
 # R only adds a library to .libPaths() if the directory already exists, and nothing else creates this one.
 mkdir -p "/shared/home/$USER/R/<%= context.r_libpath.to_s.sub(%r{\A.*/R/}, '') %>" 2>/dev/null || true
 <% end %>
+R_LIBS_USER="/shared/home/$USER/R/%p-library/%v"
+<%= context.respond_to?('r_libpath') ? "export R_LIBS_USER=\"${R_LIBS_USER}:#{context.r_libpath}\"" : "" %>
 
 # Generate an `rsession` wrapper script
 export RSESSION_WRAPPER_FILE="$WORKING_DIR/rsession.sh"
