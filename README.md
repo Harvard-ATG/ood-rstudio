@@ -53,6 +53,29 @@ The complete architecture, configuration, and troubleshooting guidance are in
 that let students run an R script on a compute node using the same image as
 their RStudio session.
 
+### Course environment provisioning
+
+For Slurm, faculty who want to use a course environment need it provisioned
+before first use: a course-managed R library, and a `course-env.sh` naming the
+image and library for batch jobs to read.
+
+**There are no hooks here — it is not called automatically.** Run it once per
+course, by hand, as root on the head node, and keep it on the course setup
+checklist:
+
+```bash
+scripts/provision-course-env.sh --canvas-id <id> --image <imagefile> --dry-run
+scripts/provision-course-env.sh --canvas-id <id> --image <imagefile>
+
+# Example — STAT 139:
+# scripts/provision-course-env.sh --canvas-id 170320 --image rstudio-base.sif --dry-run
+# scripts/provision-course-env.sh --canvas-id 170320 --image rstudio-base.sif
+```
+
+See [SLURM.md](SLURM.md) for what the file is used for, and
+[Provisioning the course environment](SLURM.md#provisioning-the-course-environment)
+for what the script checks and writes.
+
 ### RStudio Server Configuration
 
 The `apptainer exec` command used to launch the Apptainer container binds directories from the host to the container, using the `SING_BINDS` variable to contain those binds. One of those binds links `etc/rstudio` in the OOD app session folder to the `/etc/rstudio` folder in the running container, which is where the RStudio server configuration files are kept. That means that if there's RStudio server behavior that needs to be changed, those changes can be made using that folder within the `template` directory of this repository.

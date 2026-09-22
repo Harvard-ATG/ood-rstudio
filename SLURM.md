@@ -414,9 +414,94 @@ before its folder is provisioned; every course starts in that state.
 
 > **`course-env.sh` is written by provisioning, not by a session.** It belongs to
 > the course rather than to any one person, so no launch writes it —
-> `scripts/provision-course-env.sh` does, once, when the course folder and its R library
-> are created. Until that script exists the file is simply absent and the baked-in
-> fallbacks apply, which is correct but freezes the values at render time.
+> `scripts/provision-course-env.sh` does, once per course. Until it has been run
+> the file is simply absent and the baked-in fallbacks apply, which is correct but
+> freezes the values at render time. See
+> [Provisioning the course environment](#provisioning-the-course-environment).
+
+### Provisioning the course environment
+
+`scripts/provision-course-env.sh` creates the course R library and writes
+`course-env.sh`. It is run **by hand, once per course**. There are no hooks — not
+in this app, not in user setup, not on merge — so it belongs on the setup
+checklist for a Slurm-enabled course, alongside the sub-app form.
+
+It runs on the **head node, as root**. Root is the requirement rather than a
+convenience: the outer course folder is `750` and owned by the enrollment group,
+so an administrator outside the course groups cannot traverse into it at all. The
+script needs no compute and no container of its own — it creates a directory and
+writes two values — so unlike the provisioning in `ood-apptainer-apps` it is not
+an `sbatch` job.
+
+`--dry-run` prints every path it resolved and the exact file it would write, and
+changes nothing:
+
+```bash
+scripts/provision-course-env.sh --canvas-id 170320 --image rstudio-base.sif --dry-run
+scripts/provision-course-env.sh --canvas-id 170320 --image rstudio-base.sif
+```
+
+| Flag | Purpose |
+|---|---|
+| `--canvas-id` | Required. The course folder is derived from it |
+| `--image` | Required. A filename under the image root, not a path |
+| `--r-version` | Defaults to `4.5`. Must match the image's R |
+| `--arch` | Defaults to `x86_64-pc-linux-gnu` |
+| `--dry-run` | Print and exit |
+
+Every path is derived by the same convention the sub-apps use, so nothing has to
+be kept in step by hand:
+
+```text
+course folder   <course root>/<canvas-id>outer/<canvas-id>
+R library       <course folder>/R/<arch>-library/<r-version>
+env file        <course folder>/course-env.sh
+```
+
+`OOD_COURSE_SHARED_ROOT` and `OOD_IMAGE_ROOT` override the two roots, which is
+how the script can be exercised against a fake tree without a real `/shared`.
+
+Two things must hold before anything is written. The course folder must already
+exist: it is created by `/etc/ood/add_user.sh` at a course member's first login,
+not by this script, and the error says so. And the image must be readable.
+
+The R version is verified rather than trusted. The script runs
+`apptainer exec <image> R --version` and fails if the answer disagrees with
+`--r-version`, because the library path ends in the version and a mismatch would
+orphan every package in it. It locates `apptainer` by path rather than by `PATH`:
+the script is meant to run under `sudo`, and `sudo` replaces `PATH` with
+`secure_path`, which cannot contain the spack view, so a `PATH` lookup fails on
+exactly the invocation intended. `OOD_APPTAINER_BIN` overrides it. Where
+apptainer cannot be found at all the check is skipped and the flag is taken on
+trust, with a log line saying so.
+
+The R library is created `2775`. The setgid bit is the point: packages a staff
+member installs later inherit the course staff group, which keeps them readable
+to students without a `chmod` pass afterwards. An existing library is left alone.
+`course-env.sh` is written `644`, to a temp file and moved into place, because a
+job sourcing it midway through a partial write would fail in a way nobody would
+think to look for.
+
+A failed `chmod` on the library warns rather than aborts. The mode matters, but
+it is unrelated to `course-env.sh`, which is the file the wrapper actually reads,
+and refusing to write that because a `chmod` failed would couple two independent
+things. The script still exits non-zero when there were warnings, with
+`course-env.sh` written.
+
+The script is safe to re-run: it rewrites `course-env.sh` and leaves an existing
+library alone, which is the intended way to move a course to a new image. Verify
+from a session afterwards:
+
+```bash
+sbatch ~/<course>-job-tools/run-r-job.sh <script>.R
+```
+
+A course that is never provisioned still works, which is what makes this easy to
+miss. `course-env.sh` is absent, the wrapper falls back to the `IMAGE` and
+`R_LIB` values baked in when the session rendered it, and jobs run correctly
+against the image that was current that day. What is lost is the property the
+file exists for: a wrapper copied in week 2 keeps those frozen values, so a later
+image or library change never reaches it.
 
 ```mermaid
 flowchart TD
