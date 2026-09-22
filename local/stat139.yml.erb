@@ -1,0 +1,107 @@
+<%-
+# Specify admin groups by the full name of the group in the production HKey environment.
+adminGroups = [
+  "ondemand-admins-1025174" # HUIT OOD admin group
+]
+# Canvas course ID: canvas.harvard.edu/courses/170320
+enabledGroups = [
+  "170320" # STAT 139 - Introduction to Linear Models (Fall 2026)
+]
+
+def arrays_have_common_element(array1, array2)
+  !(array1 & array2).empty?
+end
+
+userGroups = OodSupport::User.new.groups.sort_by(&:id).map(&:name)
+
+# Three roles, all separable from the group names we already have. They decide
+# only whether this app appears at all: admins always, staff and enrolled
+# students for this course, nobody else. Nothing downstream branches on the
+# role - the job tools go into every user's own home, so there is no staff
+# copy, no student copy and no admin test copy to tell apart.
+#
+# NOTE the staff regex needs its own pattern: canvas170320-staff-1168564 does
+# NOT match /^canvas(\d+)-\d+/, because "staff" is not \d+.
+userCanvasGroups = userGroups.flat_map{ |str| str.scan(/^canvas(\d+)-\d+/) }.flatten
+userStaffGroups  = userGroups.flat_map{ |str| str.scan(/^canvas(\d+)-staff-\d+/) }.flatten
+
+if arrays_have_common_element(userGroups, adminGroups)
+  cluster="*"
+  role="admin"
+elsif arrays_have_common_element(userStaffGroups, enabledGroups)
+  cluster="*"
+  role="staff"
+elsif arrays_have_common_element(userCanvasGroups, enabledGroups)
+  cluster="*"
+  role="student"
+else
+  cluster="disable_this_app"
+  role="none"
+end
+-%>
+---
+cluster: "<%= cluster %>"
+title: "RStudio - STAT 139"
+description: |
+  RStudio for **STAT 139** (Introduction to Linear Models), Canvas 170320.
+
+  R comes from the course image. Packages installed by the teaching staff are
+  already on `.libPaths()`.
+
+  **Batch jobs.** Commands such as `sbatch`, `squeue`, and `sacct` work in the
+  Terminal pane.
+
+  `~/stat139-job-tools/` contains `run-r-job.sh` and `README.md`. These files
+  are refreshed every new session, so changes will be discarded. Rename
+  `run-r-job.sh` to preserve a customized copy.
+
+  Running a batch job:
+
+  ```bash
+  sbatch ~/stat139-job-tools/run-r-job.sh my_script.R
+  # Example response: Submitted batch job 123
+
+  cat stat139-<jobid>.out
+  # Example: cat stat139-123.out
+  ```
+
+  Requesting more resources:
+
+  ```bash
+  sbatch -c 4 -t 02:00:00 ~/stat139-job-tools/run-r-job.sh my_script.R
+  ```
+
+  Submit from a folder you own—the course folder is read-only.
+
+  Full instructions: `~/stat139-job-tools/README.md`
+
+attributes:
+  imagefile: rstudio-base.sif
+
+  # Turns on Slurm for this course, so students can submit batch jobs.
+  # Must be the string "true", and must also be listed under form: - otherwise
+  # it is silently ignored.
+  slurm_enabled: "true"
+
+  # Where the teaching staff install packages for the class.
+  r_libpath: "/shared/courseSharedFolders/170320outer/170320/R/x86_64-pc-linux-gnu-library/4.5"
+
+  # Short course name, used to name the things a student sees:
+  # ~/stat139-job-tools/, the job in squeue, and stat139-<jobid>.out.
+  # Must also be listed under form:.
+  course_slug: "stat139"
+
+  custom_num_cores:
+    widget: "number_field"
+    label: "Number of CPUs"
+    value: 1
+    min: 1
+    max: 4
+    step: 1
+form:
+  - custom_num_cores
+  - bc_num_hours
+  - imagefile
+  - r_libpath
+  - slurm_enabled
+  - course_slug

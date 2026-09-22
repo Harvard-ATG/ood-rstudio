@@ -1,6 +1,62 @@
-# OOD RStudio App for HUIT OOD
+# Managing R Environments in OOD RStudio App for HUIT OOD
 
-This is an overview of managing R environments in HUIT OOD, namely how R interacts with Spack. Installing R via spack is the way that we make R available for use in HPC scripts. We can also make R code available in containers, but this doesn't make it available for use in slurm jobs, at least not without a lot of unnecessary overhead that will complicate things.
+This document describes how R environments are managed by the OOD RStudio app.
+
+The app supports two related ways of providing R:
+
+- **R installed through Spack**, for command-line and HPC scripts.
+- **R provided by an Apptainer container**, for interactive RStudio sessions.
+
+## R through Spack
+
+Installing R through Spack is how we make R available for command-line and HPC
+scripts. A user activates the appropriate Spack environment in the shell or
+Slurm job where they plan to run their code, then runs `R` or `Rscript`.
+
+For example, a user working interactively on a head node can activate a
+course's Spack environment and start R:
+
+```bash
+source ~/144013/spack/share/spack/setup-env.sh
+spack env activate bst262
+R
+```
+
+The same environment can be activated in a Slurm batch job running on a compute
+node:
+
+```bash
+#!/bin/bash
+#SBATCH -J bootstrap
+#SBATCH -c 4
+#SBATCH -t 02:00:00
+
+source ~/144013/spack/share/spack/setup-env.sh
+spack env activate bst262
+
+Rscript bootstrap.R
+```
+
+## R through the container
+
+The OOD RStudio app can also provide R through an Apptainer container. The
+container contains a chosen version of R, RStudio Server, and the packages
+included in the image. This gives every user of that RStudio app the same base
+R environment.
+
+Courses can add packages through a shared R library without rebuilding the
+container image. Students' R scripts remain in their home or course directories;
+the container provides the R environment used to run those scripts.
+
+By default, a container does not have access to Slurm. It contains R, but it
+cannot see the Slurm commands, the authentication service, or the host identity
+information needed to submit a job.
+
+A course sub-app can opt in to Slurm access from inside the container. Enabling
+that option also generates a wrapper for running course R scripts as Slurm batch
+jobs in the same image used by the interactive RStudio session.
+
+See [SLURM.md](SLURM.md) for the Slurm integration and batch-wrapper design.
 
 ## R Package Paths
 

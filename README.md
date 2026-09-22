@@ -26,6 +26,56 @@ While the server is running, individual user sessions will have log data placed 
 
 Authentication is handled by the script at `template/bin/auth`, which is put in use as a parameter passed to the `rserver` command in `template/rstudio.script.sh` (with the `--auth-pam-helper-path` flag). The `auth` script must be in the correct location and also be marked as executable in order for authentication to work properly.
 
+### Slurm access from inside the container
+
+Slurm access is optional and is enabled per sub-application.
+
+A course that enables Slurm can submit and query Slurm jobs from inside the
+RStudio container. This is intended for courses that want students to work
+interactively in RStudio and submit longer-running work to the cluster without
+changing to a different R environment.
+
+Slurm runs on the compute node, outside the container. The container must
+therefore be given access to selected host-side resources, including the Slurm
+client, the Munge authentication socket, and the user and group identity
+information Slurm needs to resolve names to numeric IDs.
+
+A course opts in with a single attribute in its sub-app configuration:
+
+```yaml
+slurm_enabled: "true"
+```
+
+Sub-apps that do not opt in launch unchanged.
+
+The complete architecture, configuration, and troubleshooting guidance are in
+[SLURM.md](SLURM.md). That document also covers the generated batch-job tools
+that let students run an R script on a compute node using the same image as
+their RStudio session.
+
+### Course environment provisioning
+
+For Slurm, faculty who want to use a course environment need it provisioned
+before first use: a course-managed R library, and a `course-env.sh` naming the
+image and library for batch jobs to read.
+
+**There are no hooks here — it is not called automatically.** Run it once per
+course, by hand, as root on the head node, and keep it on the course setup
+checklist:
+
+```bash
+scripts/provision-course-env.sh --canvas-id <id> --image <imagefile> --dry-run
+scripts/provision-course-env.sh --canvas-id <id> --image <imagefile>
+
+# Example — STAT 139:
+# scripts/provision-course-env.sh --canvas-id 170320 --image rstudio-base.sif --dry-run
+# scripts/provision-course-env.sh --canvas-id 170320 --image rstudio-base.sif
+```
+
+See [SLURM.md](SLURM.md) for what the file is used for, and
+[Provisioning the course environment](SLURM.md#provisioning-the-course-environment)
+for what the script checks and writes.
+
 ### RStudio Server Configuration
 
 The `apptainer exec` command used to launch the Apptainer container binds directories from the host to the container, using the `SING_BINDS` variable to contain those binds. One of those binds links `etc/rstudio` in the OOD app session folder to the `/etc/rstudio` folder in the running container, which is where the RStudio server configuration files are kept. That means that if there's RStudio server behavior that needs to be changed, those changes can be made using that folder within the `template` directory of this repository.

@@ -1,1 +1,23 @@
 <p>The app may stay in a "Queued" state for 10-15 minutes in the event that there are no compute resources already available to run your session. Please be patient as additional compute resources are allocated to your session.</p>
+
+<%#
+  NOTE: Slurm-enabled courses only. Every sub-app shares this file, so the
+  guard is what keeps the note off the card for courses that have not opted in.
+
+  defined?(context) is belt and braces: if this template is ever rendered
+  without a session context, the block is skipped and the card is unchanged.
+
+  course_slug names the per-course folder in the user's home. It is carried as
+  its own attribute rather than derived, because the folder is named for the
+  course rather than for its Canvas id - and the Canvas id is already taken, by
+  the ~/<canvas-id> symlink to the read-only course folder.
+-%>
+<% if defined?(context) && context.respond_to?(:slurm_enabled) && context.slurm_enabled.to_s == "true" %>
+  <% slug = context.respond_to?(:course_slug) ? context.course_slug.to_s : "" %>
+  <% if !slug.empty? %>
+    <p><strong>Batch jobs.</strong> From the folder your script is in:</p>
+    <pre><code>sbatch ~/<%= slug %>-job-tools/run-r-job.sh my_script.R</code></pre>
+    <p>Output lands in <code><%= slug %>-&lt;jobid&gt;.out</code>.
+    Instructions: <code>~/<%= slug %>-job-tools/README.md</code></p>
+  <% end %>
+<% end %>

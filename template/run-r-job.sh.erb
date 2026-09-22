@@ -1,0 +1,202 @@
+<%#
+  Rendered at launch and installed as ~/<course_slug>-job-tools/run-r-job.sh.
+  The wrapper a student submits with sbatch. Replaced on every launch, so a
+  student who wants to change it renames their copy.
+-%>
+<%-
+  _rlib   = context.respond_to?('r_libpath') ? context.r_libpath.to_s : ''
+  _course = _rlib.sub(%r{/R/.*\z}, '')
+  _slug   = context.respond_to?('course_slug') ? context.course_slug.to_s : ''
+  _slug   = 'course' if _slug.empty?
+  _tools  = "~/#{_slug}-job-tools"
+  _img    = context.respond_to?('imagefile') ? context.imagefile.to_s : ''
+  _image  = _img.empty? ? '' : "/shared/apptainerImages/#{_img}"
+  _cenv   = _course.empty? ? '' : "#{_course}/course-env.sh"
+-%>
+#!/bin/bash
+#
+# ===========================================================================
+#  THIS FILE IS REPLACED EVERY TIME YOU OPEN RSTUDIO.
+#
+#  It belongs to the course, not to you. Every launch puts a fresh copy in
+#  <%= _tools %>/, so any change you make to THIS file is lost
+#  the next time you open RStudio.
+#
+#  TO KEEP YOUR CHANGES, give the file your own name first:
+#
+#      cp <%= _tools %>/run-r-job.sh run-my-job.sh
+#
+#  Then edit run-my-job.sh. Nothing will ever touch it. Only run-r-job.sh and
+#  README.md are replaced - anything else in that folder is left alone.
+#
+#  Broken it? Open RStudio again, or copy it again. It comes back correct.
+# ===========================================================================
+#
+# WHAT IT DOES
+#
+# Runs one R script on the cluster, in the same container image and with the
+# same packages as your RStudio session - so a job produces what you see in
+# the console.
+#
+# HOW TO RUN A JOB
+#
+# From the folder your R script is in:
+#
+#     sbatch <%= _tools %>/run-r-job.sh hw3.R
+#
+# You do not have to copy this file to use it. Your output lands in the folder
+# you submitted from:
+#
+#     squeue -u $USER              is it still running?
+#     cat <%= _slug %>-<jobid>.out      what did it print?
+#
+# NEED MORE CPUS OR TIME?
+#
+# You do not have to edit anything. Options on the command line beat the
+# #SBATCH settings in this file:
+#
+#     sbatch -c 4 -t 02:00:00 -J hw3 <%= _tools %>/run-r-job.sh hw3.R
+#
+#     -c   how many CPUs
+#     -t   how long, as HH:MM:SS
+#     -J   a name of your own, so you can find it in squeue
+#
+# ORDER MATTERS. Options go BEFORE the script name. Put them after and they
+# are handed to your R script instead: the job still runs, the option does
+# nothing, and nothing tells you.
+#
+# THE #SBATCH SETTINGS ARE FOR THIS JOB, NOT YOUR SESSION
+#
+# This job is scheduled on its own. The CPUs and time you picked when you
+# launched RStudio have no effect here, and asking for more here does not
+# make RStudio bigger.
+#
+#SBATCH --job-name=<%= _slug %>
+#SBATCH --output=<%= _slug %>-%j.out
+#SBATCH --partition=general
+#SBATCH --cpus-per-task=1
+#SBATCH --time=00:15:00
+#
+# ---------------------------------------------------------------------------
+# IMAGE and R_LIB are read from the course folder at RUN time, not
+# frozen into this file. That is what lets a copy taken today still use the
+# right image next month: change the course, and every copy follows.
+#
+# The two assignments are a fallback for the case where that file does not
+# exist yet - a course being tested before its folder is provisioned.
+IMAGE=<%= _image %>
+R_LIB=<%= _rlib %>
+<%- if _cenv.empty? -%>
+COURSE_ENV=
+<%- else -%>
+COURSE_ENV=<%= _cenv %>
+<%- end -%>
+[ -n "$COURSE_ENV" ] && [ -r "$COURSE_ENV" ] && . "$COURSE_ENV"
+: "${IMAGE:?no IMAGE - course-env.sh is missing and no fallback was baked in}"
+: "${R_LIB:?no R_LIB - course-env.sh is missing and no fallback was baked in}"
+
+# Check the script exists BEFORE anything expensive. Activating spack takes
+# minutes on a cold node, and starting the container is not free either, so a
+# mistyped filename would otherwise cost a full job cycle to discover - the
+# error arriving from Rscript at the very end, long after the mistake.
+#
+# It has to happen here rather than at submission: sbatch does not evaluate the
+# arguments it passes through, so a typo still costs a scheduling round trip.
+# This just stops it also costing the startup.
+#
+# The working directory is reported because that is the actual confusion -
+# students submit from one folder and name a file in another, and the message
+# "no such file" alone does not say which folder was searched.
+if [ ! -f "$1" ]; then
+  echo "no such R script: $1" >&2
+  echo "  looked in: $(pwd)" >&2
+  echo "  give a path relative to that, or an absolute one" >&2
+  exit 2
+fi
+
+# Spack is only here to provide the `apptainer` command.
+. /shared/spack/share/spack/setup-env.sh
+spack env activate apptainer
+
+# sbatch options must come BEFORE the script name - anything after it is handed
+# to your R script instead. That mistake is SILENT: the job runs, the flag does
+# nothing, and the output looks entirely normal (observed with a stray
+# --job-name, job 820). So say something rather than let it pass. This is a
+# note, not a refusal - passing real arguments to an R script is legitimate.
+for _arg in "${@:2}"; do
+  case "$_arg" in
+    -*)
+      echo "NOTE: '$_arg' was passed to your R script, not to sbatch." >&2
+      echo "      sbatch options go BEFORE the script name:" >&2
+      echo "        sbatch -J myname -c 4 $0 $1" >&2
+      break ;;
+  esac
+done
+
+echo "Running $1 on $(hostname)"
+
+# -B makes a host path visible at the same path inside the container.
+#
+#   /shared/courseSharedFolders - so the course library and course files exist
+#   $HOME                       - so YOUR files exist
+#
+# The home bind is not redundant. Apptainer does not mount the real home here:
+# without this it fabricates an EMPTY directory at $HOME, so anything you refer
+# to by an absolute path into your own home is silently missing. That breaks
+# ~/<course>/script.R (the course symlink lives in home, and its target being
+# bound does not help when the link itself is absent), and it hides your own
+# package library at $HOME/R/... from every batch job. Relative filenames work
+# either way, because apptainer binds the working directory - which is why this
+# went unnoticed until someone passed a full path.
+#
+# WHY APPTAINER GETS IT WRONG (worth knowing before "fixing" this): the compute
+# nodes' directory reports home directories as /home/<netid>, while the portal
+# reports /shared/home/<netid>. Apptainer works partly from the passwd entry, so
+# on a compute node it is looking for a home that does not exist there and makes
+# an empty one. An explicit bind does not care what the passwd entry claims,
+# which is why this is a bind and not a --home flag.
+#
+# This is NOT specific to this course or this app. Any apptainer-based app doing
+# a plain `apptainer exec` on these nodes has the same blind spot, and the
+# symptom is silent: relative paths work, absolute ones vanish.
+#
+# R_LIBS_USER tells R where to look for packages. The image supplies R itself -
+# which is the point, because the compute node's own R cannot load packages
+# compiled against the container's R.
+_BINDS="-B /shared/courseSharedFolders"
+
+# Guarded, not unconditional: an unset or missing $HOME would expand to `-B `
+# with nothing after it, which apptainer rejects as a malformed argument - so
+# the job would fail to start at all rather than merely lose the home bind.
+[ -n "$HOME" ] && [ -d "$HOME" ] && _BINDS="$_BINDS -B $HOME"
+
+# Two libraries, in the same order the RStudio session uses: the user's own
+# first, the course library second. R expands %p to the platform and %v to the R
+# version, so this stays correct across image upgrades without being told.
+#
+# Passing only the course library here would REPLACE the user's own rather than
+# add to it. A package a student installed themselves would then load in the
+# RStudio console and fail in their job, with nothing to explain the difference:
+# the library is simply missing from .libPaths() in the job and present in the
+# console. R drops a path that does not exist and says nothing, so a user with
+# no personal library loses nothing by this.
+_R_LIBS="$HOME/R/%p-library/%v:$R_LIB"
+
+# --home, because apptainer will not accept HOME any other way. It owns home
+# mounting, so it sets HOME from the passwd entry whatever the host held. Here
+# that entry says /home/<netid>, which is NFS-mounted from the head node's ROOT
+# filesystem - a different directory from the user's real home on shared storage,
+# invisible from RStudio, and 90G shared with slurmctld.
+#
+# --env HOME= does NOT work: apptainer translates it to APPTAINERENV_HOME and
+# refuses that variable outright, saying so in a warning on every job.
+#
+# What this fixes, measured: ~/<canvas-id>/hw3-bootstrap.R was UNREADABLE while
+# the same file via /shared/home/<user>/<canvas-id>/ read fine. Same symlink,
+# two routes - so the course folder was never unreachable, and ~ mis-expanding
+# broke precisely the path every instruction gives students. A ~ write landed on
+# the head node's disk where the student could not see it.
+apptainer exec --home "$HOME" $_BINDS \
+  --env R_LIBS_USER="$_R_LIBS" \
+  --env R_LIBS= \
+  "$IMAGE" Rscript "$@"
