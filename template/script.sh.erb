@@ -50,10 +50,19 @@ export RSTUDIO_AUTH="$WORKING_DIR/bin/auth"
 
 # Set up R library paths
 <% if context.respond_to?('r_libpath') %>
-# R only adds a library to .libPaths() if the directory already exists, and nothing else creates this one.
-if ! mkdir -p "/shared/home/$USER/R/<%= context.r_libpath.to_s.sub(%r{\A.*/R/}, '') %>" 2>/dev/null; then
-  log "could not create the user R library, continuing: .libPaths() will show one fewer entry and install.packages() will have nowhere writable"
-fi
+# Make the user's own library folder: R only lists a library that already exists,
+# and nothing else creates this one. The name comes from the form, so anything
+# that is not plain path characters in the shape R uses is logged and skipped.
+_R_USER_LIB_TAIL="<%= context.r_libpath.to_s.sub(%r{\A.*/R/}, '') %>"
+case "$_R_USER_LIB_TAIL" in
+  *[!A-Za-z0-9._/-]*|*..*)
+    log "not creating the user R library: unexpected characters in r_libpath: $_R_USER_LIB_TAIL" ;;
+  *-library/[0-9]*.[0-9]*)
+    mkdir -p "/shared/home/$USER/R/$_R_USER_LIB_TAIL" 2>/dev/null \
+      || log "could not create the user R library, continuing: .libPaths() will show one fewer entry" ;;
+  *)
+    log "not creating the user R library: r_libpath does not end in <platform>-library/<version>: $_R_USER_LIB_TAIL" ;;
+esac
 <% end %>
 R_LIBS_USER="/shared/home/$USER/R/%p-library/%v"
 <%= context.respond_to?('r_libpath') ? "export R_LIBS_USER=\"${R_LIBS_USER}:#{context.r_libpath}\"" : "" %>
