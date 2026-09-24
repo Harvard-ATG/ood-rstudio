@@ -49,6 +49,22 @@ export WORKING_DIR="<%= session_dir %>"
 export RSTUDIO_AUTH="$WORKING_DIR/bin/auth"
 
 # Set up R library paths
+<% if context.respond_to?('r_libpath') %>
+# Make the user's own R library folder, in their home directory. R can only list
+# a library that exists. The name comes from the form, so it is checked rather
+# than trusted: the check runs here, when the script is written, because by the
+# time the shell reads the line it has already expanded whatever it was given.
+# A name that is not the shape we know a library path should be renders as
+# nothing, and the folder is skipped and logged instead of built.
+_R_USER_LIB_TAIL="<%= _t = context.r_libpath.to_s.sub(%r{\A.*/R/}, '')
+                     _t =~ %r{\A[A-Za-z0-9._-]+-library/[0-9][0-9.]*\z} ? _t : '' %>"
+if [ -n "$_R_USER_LIB_TAIL" ]; then
+  mkdir -p "/shared/home/$USER/R/$_R_USER_LIB_TAIL" 2>/dev/null \
+    || log "could not create the user R library, continuing: .libPaths() will show one fewer entry"
+else
+  log "not creating the user R library: r_libpath is not the expected shape"
+fi
+<% end %>
 R_LIBS_USER="/shared/home/$USER/R/%p-library/%v"
 <%= context.respond_to?('r_libpath') ? "export R_LIBS_USER=\"${R_LIBS_USER}:#{context.r_libpath}\"" : "" %>
 
