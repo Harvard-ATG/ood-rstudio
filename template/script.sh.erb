@@ -53,7 +53,8 @@ export RSTUDIO_AUTH="$WORKING_DIR/bin/auth"
 # Make the user's own R library folder, in their home directory. R can only list
 # a library that exists. Before creating it, the check below compares what was
 # passed into r_libpath against the characters and shape we know a library path
-# should be, then builds it and logs the result.
+# should be, then builds it and logs the result. The name comes from the form,
+# so it is checked rather than trusted.
 _R_USER_LIB_TAIL="<%= context.r_libpath.to_s.sub(%r{\A.*/R/}, '') %>"
 case "$_R_USER_LIB_TAIL" in
   *[!A-Za-z0-9._/-]*|*..*)
